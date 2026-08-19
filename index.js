@@ -29,7 +29,7 @@ const activeTimers = new Map();
 
 // ---------- START COMMAND ----------
 bot.command('start', async (ctx) => {
-  const userId = ctx.from.id.toString();
+  const userId = String(ctx.from.id); // ✅ Force string conversion
   
   // Check if already verified
   if (userSessions.has(userId) && userSessions.get(userId)?.verified) {
@@ -47,7 +47,7 @@ bot.command('start', async (ctx) => {
     return [Markup.button.url(`▶ ${channel.name}`, channel.link)];
   });
   
-  // ✅ STORE USER SESSION IMMEDIATELY
+  // ✅ STORE USER SESSION WITH CORRECT ID
   userSessions.set(userId, {
     step: 'waiting_for_join',
     started: Date.now(),
@@ -55,6 +55,8 @@ bot.command('start', async (ctx) => {
     timerStarted: false,
     readyToVerify: false
   });
+  
+  console.log(`✅ User session created for: ${userId}`); // Debug log
   
   await ctx.reply(
     `╔══════════════════════════╗\n` +
@@ -75,14 +77,28 @@ bot.command('start', async (ctx) => {
 
 // ---------- HANDLE ALL MESSAGES - AUTO TIMER START ----------
 bot.on('message', async (ctx) => {
-  const userId = ctx.from.id.toString();
+  const userId = String(ctx.from.id); // ✅ Force string conversion
+  
+  console.log(`📨 Message from: ${userId}`); // Debug log
+  console.log(`📝 Session exists: ${userSessions.has(userId)}`); // Debug log
   
   // ✅ CHECK IF USER EXISTS IN SESSION
   if (!userSessions.has(userId)) {
-    // If no session, redirect to start
+    // ✅ USER NOT FOUND - CREATE SESSION AUTOMATICALLY
+    console.log(`🆕 Creating new session for: ${userId}`);
+    
+    userSessions.set(userId, {
+      step: 'waiting_for_join',
+      started: Date.now(),
+      verified: false,
+      timerStarted: false,
+      readyToVerify: false
+    });
+    
     return ctx.reply(
-      `✗ Please use /start first.\n\n` +
-      `Click /start to begin verification.`
+      `✓ Session created!\n\n` +
+      `Please join both WhatsApp channels first.\n` +
+      `Use /start to see the channels.`
     );
   }
   
@@ -112,6 +128,8 @@ bot.on('message', async (ctx) => {
   }
   
   // ⭐ START AUTO TIMER - 30 seconds
+  console.log(`⏳ Starting timer for: ${userId}`); // Debug log
+  
   let countdown = 30;
   activeTimers.set(userId, countdown);
   
@@ -178,7 +196,7 @@ bot.on('message', async (ctx) => {
 bot.action('verify_now', async (ctx) => {
   await ctx.answerCbQuery();
   
-  const userId = ctx.from.id.toString();
+  const userId = String(ctx.from.id);
   
   // ✅ CHECK IF USER EXISTS
   if (!userSessions.has(userId)) {
@@ -232,7 +250,7 @@ bot.action('verify_now', async (ctx) => {
 
 // ---------- HELP COMMAND ----------
 bot.command('help', async (ctx) => {
-  const userId = ctx.from.id.toString();
+  const userId = String(ctx.from.id);
   
   if (!userSessions.has(userId) || !userSessions.get(userId)?.verified) {
     return ctx.reply(`✗ Please use /start and verify first.`);
@@ -254,7 +272,7 @@ bot.command('help', async (ctx) => {
 
 // ---------- PREMIUM COMMAND ----------
 bot.command('premium', async (ctx) => {
-  const userId = ctx.from.id.toString();
+  const userId = String(ctx.from.id);
   
   if (!userSessions.has(userId) || !userSessions.get(userId)?.verified) {
     return ctx.reply(`✗ Please verify first.`);
@@ -274,7 +292,7 @@ bot.command('premium', async (ctx) => {
 
 // ---------- TOOLS COMMAND ----------
 bot.command('tools', async (ctx) => {
-  const userId = ctx.from.id.toString();
+  const userId = String(ctx.from.id);
   
   if (!userSessions.has(userId) || !userSessions.get(userId)?.verified) {
     return ctx.reply(`✗ Please verify first.`);
@@ -293,7 +311,7 @@ bot.command('tools', async (ctx) => {
 
 // ---------- ABOUT COMMAND ----------
 bot.command('about', async (ctx) => {
-  const userId = ctx.from.id.toString();
+  const userId = String(ctx.from.id);
   
   if (!userSessions.has(userId) || !userSessions.get(userId)?.verified) {
     return ctx.reply(`✗ Please verify first.`);
@@ -315,7 +333,7 @@ bot.command('about', async (ctx) => {
 
 // ---------- ADMIN COMMAND ----------
 bot.command('admin', async (ctx) => {
-  const userId = ctx.from.id.toString();
+  const userId = String(ctx.from.id);
   
   if (userId !== ADMIN_ID) {
     return ctx.reply(`✗ Unknown command.`);
