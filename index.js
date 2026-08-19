@@ -34,10 +34,10 @@ bot.command('start', async (ctx) => {
   // Check if already verified
   if (userSessions.has(userId) && userSessions.get(userId)?.verified) {
     return ctx.reply(
-      `╔══════════════════════════╗\n` +
+      `╔══════════════════════════════════════╗\n` +
       `║   WELCOME BACK   ║\n` +
-      `╚══════════════════════════╝\n\n` +
-      `✓ You are already verified.\n` +
+      `╚══════════════════════════════════════╝\n\n` +
+      `✅ You are already verified.\n` +
       `Use /help for commands.`
     );
   }
@@ -47,7 +47,6 @@ bot.command('start', async (ctx) => {
     return [Markup.button.url(`▶ ${channel.name}`, channel.link)];
   });
   
-  // Store user session
   userSessions.set(userId, {
     step: 'waiting_for_join',
     started: Date.now(),
@@ -56,10 +55,12 @@ bot.command('start', async (ctx) => {
     readyToVerify: false
   });
   
+  console.log(`✅ User session created for: ${userId}`);
+  
   await ctx.reply(
-    `╔══════════════════════════╗\n` +
+    `╔══════════════════════════════════════╗\n` +
     `║   VERIFICATION REQUIRED  ║\n` +
-    `╚══════════════════════════╝\n\n` +
+    `╚══════════════════════════════════════╝\n\n` +
     `Hello ${ctx.from.first_name},\n\n` +
     `⚠️ Please join BOTH WhatsApp channels:\n\n` +
     `▶ ${WHATSAPP_CHANNELS[0].name}\n` +
@@ -77,8 +78,12 @@ bot.command('start', async (ctx) => {
 bot.on('message', async (ctx) => {
   const userId = String(ctx.from.id);
   
-  // Check if user exists in session
+  console.log(`📨 Message from: ${userId}`);
+  console.log(`📝 Session exists: ${userSessions.has(userId)}`);
+  
   if (!userSessions.has(userId)) {
+    console.log(`🔄 Creating new session for: ${userId}`);
+    
     userSessions.set(userId, {
       step: 'waiting_for_join',
       started: Date.now(),
@@ -86,7 +91,12 @@ bot.on('message', async (ctx) => {
       timerStarted: false,
       readyToVerify: false
     });
-    return ctx.reply(`✓ Session created!\n\nPlease use /start to see channels.`);
+    
+    return ctx.reply(
+      `✅ Session created!\n\n` +
+      `Please join both WhatsApp channels first.\n` +
+      `Use /start to see the channels.`
+    );
   }
   
   const session = userSessions.get(userId);
@@ -99,7 +109,7 @@ bot.on('message', async (ctx) => {
   // If already ready to verify
   if (session.readyToVerify) {
     return ctx.reply(
-      `✓ You are ready to verify!\n` +
+      `✅ You are ready to verify!\n` +
       `Click "I Have Joined Both" button.`
     );
   }
@@ -114,7 +124,9 @@ bot.on('message', async (ctx) => {
     );
   }
   
-  // ⭐ START AUTO TIMER - 30 seconds with RECURSIVE TIMEOUT
+  // ⭐ START AUTO TIMER - 30 seconds with LIVE countdown
+  console.log(`⏳ Starting timer for: ${userId}`);
+  
   let countdown = 30;
   activeTimers.set(userId, countdown);
   
@@ -125,27 +137,53 @@ bot.on('message', async (ctx) => {
     timerStarted: Date.now()
   });
   
-  // Send initial timer message
-  await ctx.reply(
-    `╔══════════════════════════╗\n` +
+  // Send initial timer message with live countdown
+  const timerMessage = await ctx.reply(
+    `╔══════════════════════════════════════╗\n` +
     `║   VERIFICATION STARTED   ║\n` +
-    `╚══════════════════════════╝\n\n` +
+    `╚══════════════════════════════════════╝\n\n` +
     `✅ Both channels joined!\n\n` +
     `⏳ Timer started: 30 seconds\n` +
-    `🔄 Please wait while we verify...\n\n` +
+    `🔴 Please wait while we verify...\n\n` +
     `⏱️ 30 seconds remaining...`
   );
   
-  // ⭐ RECURSIVE TIMER FUNCTION - This will work on Vercel
-  const startTimer = async (remaining) => {
-    if (remaining <= 0) {
+  // Create interval for live countdown
+  const interval = setInterval(async () => {
+    countdown -= 1;
+    activeTimers.set(userId, countdown);
+    
+    if (countdown > 0) {
+      // Update the same message with new countdown
+      try {
+        await ctx.telegram.editMessageText(
+          ctx.chat.id,
+          timerMessage.message_id,
+          null,
+          `╔══════════════════════════════════════╗\n` +
+          `║   VERIFICATION STARTED   ║\n` +
+          `╚══════════════════════════════════════╝\n\n` +
+          `✅ Both channels joined!\n\n` +
+          `⏳ Timer started: 30 seconds\n` +
+          `🔴 Please wait while we verify...\n\n` +
+          `⏱️ ${countdown} seconds remaining...`
+        );
+      } catch (error) {
+        // If message can't be edited (maybe deleted), send new message
+        console.log('Could not edit message, sending new one');
+        await ctx.reply(`⏱️ ${countdown} seconds remaining...`);
+      }
+    } else {
       // Timer complete
+      clearInterval(interval);
       activeTimers.delete(userId);
       
+      // Create verify button
       const verifyButton = [
-        [Markup.button.callback('✓ I Have Joined Both', 'verify_now')]
+        [Markup.button.callback('✅ I Have Joined Both', 'verify_now')]
       ];
       
+      // UPDATE SESSION WITH readyToVerify = true
       userSessions.set(userId, {
         ...session,
         step: 'ready_to_verify',
@@ -153,35 +191,37 @@ bot.on('message', async (ctx) => {
         verified: false
       });
       
-      await ctx.reply(
-        `╔══════════════════════════╗\n` +
-        `║  VERIFICATION READY   ║\n` +
-        `╚══════════════════════════╝\n\n` +
-        `✅ Timer complete!\n\n` +
-        `✓ You have successfully waited 30 seconds.\n` +
-        `✓ Click the button below to complete verification.`,
-        {
-          ...Markup.inlineKeyboard(verifyButton)
-        }
-      );
-      return;
+      // Update final message
+      try {
+        await ctx.telegram.editMessageText(
+          ctx.chat.id,
+          timerMessage.message_id,
+          null,
+          `╔══════════════════════════════════════╗\n` +
+          `║  VERIFICATION READY   ║\n` +
+          `╚══════════════════════════════════════╝\n\n` +
+          `✅ Timer complete!\n\n` +
+          `✅ You have successfully waited 30 seconds.\n` +
+          `✅ Click the button below to complete verification.`,
+          {
+            ...Markup.inlineKeyboard(verifyButton)
+          }
+        );
+      } catch (error) {
+        // If can't edit, send new message with button
+        await ctx.reply(
+          `╔══════════════════════════════════════╗\n` +
+          `║  VERIFICATION READY   ║\n` +
+          `╚══════════════════════════════════════╝\n\n` +
+          `✅ Timer complete!\n\n` +
+          `✅ You have successfully waited 30 seconds.\n` +
+          `✅ Click the button below to complete verification.`,
+          {
+            ...Markup.inlineKeyboard(verifyButton)
+          }
+        );
+      }
     }
-    
-    // Update remaining time
-    activeTimers.set(userId, remaining);
-    
-    // Send countdown message
-    await ctx.reply(`⏱️ ${remaining} seconds remaining...`);
-    
-    // Call next iteration after 1 second
-    setTimeout(() => {
-      startTimer(remaining - 1);
-    }, 1000);
-  };
-  
-  // Start the timer
-  setTimeout(() => {
-    startTimer(29); // Start with 29 (30 - 1)
   }, 1000);
 });
 
@@ -192,18 +232,18 @@ bot.action('verify_now', async (ctx) => {
   const userId = String(ctx.from.id);
   
   if (!userSessions.has(userId)) {
-    return ctx.reply(`✗ Please use /start first.`);
+    return ctx.reply(`❌ Please use /start first.`);
   }
   
   const session = userSessions.get(userId);
   
   if (session.verified) {
-    return ctx.reply(`✓ You are already verified!`);
+    return ctx.reply(`✅ You are already verified!`);
   }
   
   if (!session.readyToVerify) {
     return ctx.reply(
-      `✗ Please wait 30 seconds after joining channels.\n` +
+      `❌ Please wait 30 seconds after joining channels.\n` +
       `Use /start to try again.`
     );
   }
@@ -219,24 +259,24 @@ bot.action('verify_now', async (ctx) => {
   });
   
   await ctx.reply(
-    `╔══════════════════════════╗\n` +
+    `╔══════════════════════════════════════╗\n` +
     `║  VERIFICATION SUCCESSFUL ║\n` +
-    `╚══════════════════════════╝\n\n` +
-    `✓ All commands are now unlocked!\n\n` +
+    `╚══════════════════════════════════════╝\n\n` +
+    `✅ All commands are now unlocked!\n\n` +
     `Use /help to see available commands.`
   );
   
   // Send command list
   await ctx.reply(
-    `╔══════════════════════════╗\n` +
+    `╔══════════════════════════════════════╗\n` +
     `║    COMMANDS   ║\n` +
-    `╚══════════════════════════╝\n\n` +
+    `╚══════════════════════════════════════╝\n\n` +
     `▶ /start - Start the bot\n` +
     `▶ /help - Show this menu\n` +
     `▶ /premium - Premium features\n` +
     `▶ /tools - Available tools\n` +
     `▶ /about - About this bot\n\n` +
-    `◆ All commands are unlocked.`
+    `◇ All commands are unlocked.`
   );
 });
 
@@ -245,20 +285,20 @@ bot.command('help', async (ctx) => {
   const userId = String(ctx.from.id);
   
   if (!userSessions.has(userId) || !userSessions.get(userId)?.verified) {
-    return ctx.reply(`✗ Please use /start and verify first.`);
+    return ctx.reply(`❌ Please use /start and verify first.`);
   }
   
   await ctx.reply(
-    `╔══════════════════════════╗\n` +
+    `╔══════════════════════════════════════╗\n` +
     `║    COMMANDS   ║\n` +
-    `╚══════════════════════════╝\n\n` +
+    `╚══════════════════════════════════════╝\n\n` +
     `▶ /start - Start the bot\n` +
     `▶ /help - Show this menu\n` +
     `▶ /premium - Premium features\n` +
     `▶ /tools - Available tools\n` +
     `▶ /about - About this bot\n` +
     `▶ /admin - Admin panel (admin only)\n\n` +
-    `◆ All commands are unlocked.`
+    `◇ All commands are unlocked.`
   );
 });
 
@@ -267,17 +307,17 @@ bot.command('premium', async (ctx) => {
   const userId = String(ctx.from.id);
   
   if (!userSessions.has(userId) || !userSessions.get(userId)?.verified) {
-    return ctx.reply(`✗ Please verify first.`);
+    return ctx.reply(`❌ Please verify first.`);
   }
   
   await ctx.reply(
-    `╔══════════════════════════╗\n` +
+    `╔══════════════════════════════════════╗\n` +
     `║   PREMIUM FEATURES   ║\n` +
-    `╚══════════════════════════╝\n\n` +
-    `● Exclusive Content\n` +
-    `● Priority Support\n` +
-    `● Early Access\n` +
-    `● Special Offers\n\n` +
+    `╚══════════════════════════════════════╝\n\n` +
+    `○ Exclusive Content\n` +
+    `○ Priority Support\n` +
+    `○ Early Access\n` +
+    `○ Special Offers\n\n` +
     `Contact admin for more information.`
   );
 });
@@ -287,16 +327,16 @@ bot.command('tools', async (ctx) => {
   const userId = String(ctx.from.id);
   
   if (!userSessions.has(userId) || !userSessions.get(userId)?.verified) {
-    return ctx.reply(`✗ Please verify first.`);
+    return ctx.reply(`❌ Please verify first.`);
   }
   
   await ctx.reply(
-    `╔══════════════════════════╗\n` +
+    `╔══════════════════════════════════════╗\n` +
     `║    TOOLS   ║\n` +
-    `╚══════════════════════════╝\n\n` +
-    `◆ Tool 1 - Description\n` +
-    `◆ Tool 2 - Description\n` +
-    `◆ Tool 3 - Description\n\n` +
+    `╚══════════════════════════════════════╝\n\n` +
+    `† Tool 1 - Description\n` +
+    `† Tool 2 - Description\n` +
+    `† Tool 3 - Description\n\n` +
     `More tools coming soon.`
   );
 });
@@ -306,20 +346,20 @@ bot.command('about', async (ctx) => {
   const userId = String(ctx.from.id);
   
   if (!userSessions.has(userId) || !userSessions.get(userId)?.verified) {
-    return ctx.reply(`✗ Please verify first.`);
+    return ctx.reply(`❌ Please verify first.`);
   }
   
   await ctx.reply(
-    `╔══════════════════════════╗\n` +
+    `╔══════════════════════════════════════╗\n` +
     `║   HJH PREMIUM BOT   ║\n` +
-    `╚══════════════════════════╝\n\n` +
+    `╚══════════════════════════════════════╝\n\n` +
     `Version: 2.0\n` +
     `Developer: HJH\n\n` +
     `Features:\n` +
-    `● WhatsApp Force Join\n` +
-    `● Premium Content\n` +
-    `● Tools Management\n\n` +
-    `Made with Love`
+    `○ WhatsApp Force Join\n` +
+    `○ Premium Content\n` +
+    `○ Tools Management\n\n` +
+    `Made with ❤️`
   );
 });
 
@@ -328,19 +368,19 @@ bot.command('admin', async (ctx) => {
   const userId = String(ctx.from.id);
   
   if (userId !== ADMIN_ID) {
-    return ctx.reply(`✗ Unknown command.`);
+    return ctx.reply(`❌ Unknown command.`);
   }
   
   const totalUsers = userSessions.size;
   const verifiedCount = Array.from(userSessions.values()).filter(u => u.verified).length;
   
   await ctx.reply(
-    `╔══════════════════════════╗\n` +
+    `╔══════════════════════════════════════╗\n` +
     `║   ADMIN PANEL   ║\n` +
-    `╚══════════════════════════╝\n\n` +
+    `╚══════════════════════════════════════╝\n\n` +
     `Total Users: ${totalUsers}\n` +
     `Verified: ${verifiedCount}\n\n` +
-    `◆ Admin commands coming soon.`
+    `† Admin commands coming soon.`
   );
 });
 
