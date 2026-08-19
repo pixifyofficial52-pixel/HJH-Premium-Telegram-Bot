@@ -25,6 +25,7 @@
             top: 0;
             padding: 20px;
             overflow-y: auto;
+            z-index: 100;
         }
         .sidebar h2 {
             color: #7c5cfc;
@@ -209,15 +210,22 @@
             margin-top: 10px;
         }
         .toast {
+            position: fixed;
+            bottom: 20px;
+            right: 20px;
             background: #2ecc71;
             color: #fff;
-            padding: 15px;
+            padding: 15px 25px;
             border-radius: 8px;
-            margin-top: 10px;
-            text-align: center;
+            z-index: 9999;
+            animation: slideIn 0.3s ease;
         }
         .toast.error {
             background: #e74c3c;
+        }
+        @keyframes slideIn {
+            from { transform: translateX(100%); opacity: 0; }
+            to { transform: translateX(0); opacity: 1; }
         }
         @media (max-width: 768px) {
             .sidebar {
@@ -405,6 +413,9 @@
     }
 
     function showToast(message, isError = false) {
+        const existing = document.querySelector('.toast');
+        if (existing) existing.remove();
+        
         const el = document.createElement('div');
         el.className = `toast ${isError ? 'error' : ''}`;
         el.textContent = message;
@@ -423,6 +434,7 @@
     async function loadDashboard() {
         try {
             const res = await fetch('/api/admin/stats', { headers: getHeaders() });
+            if (!res.ok) throw new Error('Unauthorized');
             const data = await res.json();
             document.getElementById('totalUsers').textContent = data.totalUsers || 0;
             document.getElementById('verifiedUsers').textContent = data.verifiedCount || 0;
@@ -431,12 +443,16 @@
             document.getElementById('totalTools').textContent = data.tools || 0;
             document.getElementById('userCount').textContent = data.totalUsers || 0;
             document.getElementById('verifiedCount').textContent = data.verifiedCount || 0;
-        } catch (e) { console.error(e); }
+        } catch (e) { 
+            console.error(e);
+            showToast('Error loading dashboard', true);
+        }
     }
 
     async function loadUsers() {
         try {
             const res = await fetch('/api/admin/users', { headers: getHeaders() });
+            if (!res.ok) throw new Error('Unauthorized');
             const users = await res.json();
             const list = document.getElementById('usersList');
             if (users.length === 0) {
@@ -458,16 +474,20 @@
                     </div>
                 </div>
             `).join('');
-        } catch (e) { console.error(e); }
+        } catch (e) { 
+            console.error(e);
+            showToast('Error loading users', true);
+        }
     }
 
     async function toggleVerify(userId, verified) {
         try {
-            await fetch(`/api/admin/users/${userId}/verify`, {
+            const res = await fetch(`/api/admin/users/${userId}/verify`, {
                 method: 'POST',
                 headers: getHeaders(),
                 body: JSON.stringify({ verified })
             });
+            if (!res.ok) throw new Error('Failed');
             loadUsers();
             loadDashboard();
             showToast(`User ${verified ? 'verified' : 'unverified'} successfully`);
@@ -479,6 +499,7 @@
     async function loadCommands() {
         try {
             const res = await fetch('/api/admin/commands', { headers: getHeaders() });
+            if (!res.ok) throw new Error('Unauthorized');
             const commands = await res.json();
             const list = document.getElementById('commandsList');
             if (commands.length === 0) {
@@ -496,47 +517,59 @@
                     </div>
                 </div>
             `).join('');
-        } catch (e) { console.error(e); }
+        } catch (e) { 
+            console.error(e);
+            showToast('Error loading commands', true);
+        }
     }
 
     async function addCommand() {
         const command = document.getElementById('cmdName').value.trim();
         const response = document.getElementById('cmdResponse').value.trim();
+        
         if (!command || !response) {
             showToast('Please fill all fields', true);
             return;
         }
+        
         try {
             const res = await fetch('/api/admin/commands', {
                 method: 'POST',
                 headers: getHeaders(),
                 body: JSON.stringify({ command, response })
             });
+            
+            const data = await res.json();
+            
             if (res.ok) {
                 document.getElementById('cmdName').value = '';
                 document.getElementById('cmdResponse').value = '';
                 loadCommands();
                 loadDashboard();
-                showToast('✅ Command added!');
+                showToast('✅ Command added successfully!');
             } else {
-                const err = await res.json();
-                showToast('Error: ' + err.error, true);
+                showToast('Error: ' + (data.error || 'Unknown error'), true);
             }
         } catch (e) {
-            showToast('Error adding command', true);
+            showToast('Error adding command - Check console', true);
+            console.error(e);
         }
     }
 
     async function deleteCommand(command) {
         if (!confirm(`Delete /${command}?`)) return;
         try {
-            await fetch(`/api/admin/commands/${command}`, {
+            const res = await fetch(`/api/admin/commands/${command}`, {
                 method: 'DELETE',
                 headers: getHeaders()
             });
-            loadCommands();
-            loadDashboard();
-            showToast('✅ Command deleted');
+            if (res.ok) {
+                loadCommands();
+                loadDashboard();
+                showToast('✅ Command deleted');
+            } else {
+                showToast('Error deleting command', true);
+            }
         } catch (e) {
             showToast('Error deleting command', true);
         }
@@ -545,6 +578,7 @@
     async function loadTools() {
         try {
             const res = await fetch('/api/admin/tools', { headers: getHeaders() });
+            if (!res.ok) throw new Error('Unauthorized');
             const tools = await res.json();
             const list = document.getElementById('toolsList');
             if (tools.length === 0) {
@@ -562,23 +596,29 @@
                     </div>
                 </div>
             `).join('');
-        } catch (e) { console.error(e); }
+        } catch (e) { 
+            console.error(e);
+            showToast('Error loading tools', true);
+        }
     }
 
     async function addTool() {
         const name = document.getElementById('toolName').value.trim();
         const description = document.getElementById('toolDesc').value.trim();
         const link = document.getElementById('toolLink').value.trim();
+        
         if (!name || !description) {
             showToast('Please fill name and description', true);
             return;
         }
+        
         try {
             const res = await fetch('/api/admin/tools', {
                 method: 'POST',
                 headers: getHeaders(),
                 body: JSON.stringify({ name, description, link })
             });
+            
             if (res.ok) {
                 document.getElementById('toolName').value = '';
                 document.getElementById('toolDesc').value = '';
@@ -586,6 +626,8 @@
                 loadTools();
                 loadDashboard();
                 showToast('✅ Tool added!');
+            } else {
+                showToast('Error adding tool', true);
             }
         } catch (e) {
             showToast('Error adding tool', true);
@@ -595,13 +637,17 @@
     async function deleteTool(id) {
         if (!confirm('Delete this tool?')) return;
         try {
-            await fetch(`/api/admin/tools/${id}`, {
+            const res = await fetch(`/api/admin/tools/${id}`, {
                 method: 'DELETE',
                 headers: getHeaders()
             });
-            loadTools();
-            loadDashboard();
-            showToast('✅ Tool deleted');
+            if (res.ok) {
+                loadTools();
+                loadDashboard();
+                showToast('✅ Tool deleted');
+            } else {
+                showToast('Error deleting tool', true);
+            }
         } catch (e) {
             showToast('Error deleting tool', true);
         }
@@ -610,6 +656,7 @@
     async function loadSettings() {
         try {
             const res = await fetch('/api/admin/settings', { headers: getHeaders() });
+            if (!res.ok) throw new Error('Unauthorized');
             const data = await res.json();
             if (data.channels) {
                 document.getElementById('ch1Name').value = data.channels[0]?.name || '';
@@ -622,7 +669,10 @@
                 document.getElementById('verifiedMsg').value = data.settings.verifiedMessage || '';
                 document.getElementById('screenshotReqMsg').value = data.settings.screenshotRequired || '';
             }
-        } catch (e) { console.error(e); }
+        } catch (e) { 
+            console.error(e);
+            showToast('Error loading settings', true);
+        }
     }
 
     async function updateSettings() {
@@ -631,12 +681,16 @@
             { name: document.getElementById('ch2Name').value, link: document.getElementById('ch2Link').value }
         ];
         try {
-            await fetch('/api/admin/settings', {
+            const res = await fetch('/api/admin/settings', {
                 method: 'PUT',
                 headers: getHeaders(),
                 body: JSON.stringify({ channels })
             });
-            showToast('✅ Channels updated!');
+            if (res.ok) {
+                showToast('✅ Channels updated!');
+            } else {
+                showToast('Error updating channels', true);
+            }
         } catch (e) {
             showToast('Error updating settings', true);
         }
@@ -649,12 +703,16 @@
             screenshotRequired: document.getElementById('screenshotReqMsg').value
         };
         try {
-            await fetch('/api/admin/settings', {
+            const res = await fetch('/api/admin/settings', {
                 method: 'PUT',
                 headers: getHeaders(),
                 body: JSON.stringify({ settings })
             });
-            showToast('✅ Messages updated!');
+            if (res.ok) {
+                showToast('✅ Messages updated!');
+            } else {
+                showToast('Error updating messages', true);
+            }
         } catch (e) {
             showToast('Error updating messages', true);
         }
