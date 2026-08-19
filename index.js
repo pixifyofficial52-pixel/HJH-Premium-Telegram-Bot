@@ -23,23 +23,18 @@ const WHATSAPP_CHANNELS = [
 const bot = new Telegraf(BOT_TOKEN);
 bot.use(session());
 
-// Store verification codes (in-memory)
-const verificationCodes = new Map();
-const verifiedUsers = new Map();
-
-// ---------- GENERATE RANDOM CODE ----------
-const generateCode = () => {
-  return Math.floor(100000 + Math.random() * 900000).toString();
-};
+// Store user sessions
+const userSessions = new Map();
 
 // ---------- COMMANDS ----------
 
 // START COMMAND
 bot.command('start', async (ctx) => {
   const userId = ctx.from.id.toString();
-  const userData = verifiedUsers.get(userId);
+  const session = userSessions.get(userId);
   
-  if (userData?.verified) {
+  // If already verified
+  if (session?.verified) {
     return ctx.reply(
       `╔══════════════════════════╗\n` +
       `║   WELCOME BACK   ║\n` +
@@ -49,24 +44,14 @@ bot.command('start', async (ctx) => {
     );
   }
   
-  // Check if verification in progress
-  if (verificationCodes.has(userId)) {
-    return ctx.reply(
-      `╔══════════════════════════╗\n` +
-      `║  VERIFICATION IN PROGRESS ║\n` +
-      `╚══════════════════════════╝\n\n` +
-      `Please check your WhatsApp for the verification code.\n` +
-      `Send the 6-digit code here to complete verification.`
-    );
-  }
-  
-  // Channel buttons
+  // Create channel buttons
   const buttons = WHATSAPP_CHANNELS.map(channel => {
     return [Markup.button.url(`▶ ${channel.name}`, channel.link)];
   });
   
+  // Add join button
   buttons.push([
-    Markup.button.callback('✓ I Have Joined Both', 'request_code')
+    Markup.button.callback('⏳ Join Channels First', 'check_join')
   ]);
   
   await ctx.reply(
@@ -74,128 +59,143 @@ bot.command('start', async (ctx) => {
     `║   VERIFICATION REQUIRED  ║\n` +
     `╚══════════════════════════╝\n\n` +
     `Hello ${ctx.from.first_name},\n\n` +
-    `Please join BOTH WhatsApp channels:\n\n` +
-    `▶ Join both channels\n` +
-    `▶ Click "I Have Joined Both"\n` +
-    `▶ Enter the verification code sent to your WhatsApp`,
+    `⚠️ Please join BOTH WhatsApp channels:\n\n` +
+    `▶ ${WHATSAPP_CHANNELS[0].name}\n` +
+    `▶ ${WHATSAPP_CHANNELS[1].name}\n\n` +
+    `📌 Click "Join Channels First" after joining.\n` +
+    `⏳ Then wait 30 seconds for verification.`,
     {
       ...Markup.inlineKeyboard(buttons)
     }
   );
 });
 
-// REQUEST CODE - User ne join kar liya
-bot.action('request_code', async (ctx) => {
+// CHECK JOIN - User ne join kar liya
+bot.action('check_join', async (ctx) => {
   await ctx.answerCbQuery();
   
   const userId = ctx.from.id.toString();
-  const code = generateCode();
+  const session = userSessions.get(userId);
   
-  // Store code with expiry (5 minutes)
-  verificationCodes.set(userId, {
-    code: code,
-    expires: Date.now() + 300000, // 5 minutes
-    attempts: 0
-  });
-  
-  // In production, send actual WhatsApp message via API
-  // For now, show code in chat (demo)
-  await ctx.reply(
-    `╔══════════════════════════╗\n` +
-    `║  VERIFICATION CODE SENT  ║\n` +
-    `╚══════════════════════════╝\n\n` +
-    `✓ A 6-digit code has been sent to your WhatsApp.\n\n` +
-    `📱 Code: ${code}\n\n` +
-    `⚠️ This code expires in 5 minutes.\n` +
-    `Send this code here to complete verification.`
-  );
-  
-  // In production, send via WhatsApp API:
-  // await sendWhatsAppMessage(userPhone, `Your verification code: ${code}`);
-});
-
-// HANDLE CODE INPUT
-bot.on('text', async (ctx) => {
-  const userId = ctx.from.id.toString();
-  const text = ctx.message.text.trim();
-  
-  // Check if this is a verification code (6 digits)
-  if (/^\d{6}$/.test(text)) {
-    const pending = verificationCodes.get(userId);
-    
-    if (!pending) {
-      return ctx.reply(
-        `✗ No verification in progress.\n\nUse /start to begin.`
-      );
-    }
-    
-    // Check expiry
-    if (Date.now() > pending.expires) {
-      verificationCodes.delete(userId);
-      return ctx.reply(
-        `✗ Code expired.\n\nUse /start to try again.`
-      );
-    }
-    
-    // Check attempts
-    if (pending.attempts >= 3) {
-      verificationCodes.delete(userId);
-      return ctx.reply(
-        `✗ Too many failed attempts.\n\nUse /start to try again.`
-      );
-    }
-    
-    // Verify code
-    if (text === pending.code) {
-      // Success!
-      verifiedUsers.set(userId, {
-        verified: true,
-        verifiedAt: new Date().toISOString(),
-        username: ctx.from.username,
-        firstName: ctx.from.first_name
-      });
-      
-      verificationCodes.delete(userId);
-      
-      return ctx.reply(
-        `╔══════════════════════════╗\n` +
-        `║  VERIFICATION SUCCESSFUL ║\n` +
-        `╚══════════════════════════╝\n\n` +
-        `✓ All commands are now unlocked!\n\n` +
-        `Use /help to see available commands.`
-      );
-    } else {
-      // Wrong code
-      pending.attempts += 1;
-      const remaining = 3 - pending.attempts;
-      
-      return ctx.reply(
-        `✗ Invalid code.\n\n` +
-        `Attempts remaining: ${remaining}\n\n` +
-        `Please try again.`
-      );
-    }
+  if (session?.verified) {
+    return ctx.reply(`✓ You are already verified!`);
   }
   
-  // Regular message handling
-  const userData = verifiedUsers.get(userId);
-  if (!userData?.verified) {
+  // Show waiting message with timer
+  const startTime = Date.now();
+  
+  // Initial message
+  await ctx.reply(
+    `╔══════════════════════════╗\n` +
+    `║   VERIFICATION STARTED   ║\n` +
+    `╚══════════════════════════╝\n\n` +
+    `✓ Checking channel membership...\n\n` +
+    `⏳ Please wait 30 seconds...\n` +
+    `🔄 Verification will be available soon.`
+  );
+  
+  // Update user session with timer
+  userSessions.set(userId, {
+    startTime: startTime,
+    waiting: true,
+    verified: false
+  });
+  
+  // Send progress messages
+  let countdown = 30;
+  
+  const interval = setInterval(async () => {
+    countdown -= 5;
+    
+    if (countdown > 0) {
+      await ctx.reply(
+        `⏳ ${countdown} seconds remaining...\n` +
+        `Please stay on this chat.`
+      );
+    } else {
+      clearInterval(interval);
+      
+      // 30 seconds complete - Show verify button
+      const verifyButton = [
+        [Markup.button.callback('✓ I Have Joined Both', 'verify_now')]
+      ];
+      
+      await ctx.reply(
+        `╔══════════════════════════╗\n` +
+        `║  VERIFICATION READY   ║\n` +
+        `╚══════════════════════════╝\n\n` +
+        `✅ Time is up!\n\n` +
+        `✓ You have joined both channels.\n` +
+        `✓ Click the button below to verify.`,
+        {
+          ...Markup.inlineKeyboard(verifyButton)
+        }
+      );
+      
+      // Update session
+      const current = userSessions.get(userId);
+      if (current) {
+        current.readyToVerify = true;
+        userSessions.set(userId, current);
+      }
+    }
+  }, 5000); // Update every 5 seconds
+});
+
+// VERIFY NOW - Final verification
+bot.action('verify_now', async (ctx) => {
+  await ctx.answerCbQuery();
+  
+  const userId = ctx.from.id.toString();
+  const session = userSessions.get(userId);
+  
+  if (session?.verified) {
+    return ctx.reply(`✓ You are already verified!`);
+  }
+  
+  if (!session?.readyToVerify) {
     return ctx.reply(
-      `✗ Please use /start and verify first.`
+      `✗ Please wait 30 seconds after joining channels.\n` +
+      `Use /start to try again.`
     );
   }
   
+  // Mark as verified
+  userSessions.set(userId, {
+    verified: true,
+    verifiedAt: new Date().toISOString(),
+    username: ctx.from.username,
+    firstName: ctx.from.first_name
+  });
+  
   await ctx.reply(
-    `I received: ${text}\n\nUse /help for commands.`
+    `╔══════════════════════════╗\n` +
+    `║  VERIFICATION SUCCESSFUL ║\n` +
+    `╚══════════════════════════╝\n\n` +
+    `✓ All commands are now unlocked!\n\n` +
+    `Use /help to see available commands.`
+  );
+  
+  // Send command list immediately
+  await ctx.reply(
+    `╔══════════════════════════╗\n` +
+    `║    COMMANDS   ║\n` +
+    `╚══════════════════════════╝\n\n` +
+    `▶ /start - Start the bot\n` +
+    `▶ /help - Show this menu\n` +
+    `▶ /premium - Premium features\n` +
+    `▶ /tools - Available tools\n` +
+    `▶ /about - About this bot\n\n` +
+    `◆ All commands are unlocked.`
   );
 });
 
 // HELP COMMAND
 bot.command('help', async (ctx) => {
   const userId = ctx.from.id.toString();
-  const userData = verifiedUsers.get(userId);
+  const session = userSessions.get(userId);
   
-  if (!userData?.verified) {
+  if (!session?.verified) {
     return ctx.reply(`✗ Please use /start and verify first.`);
   }
   
@@ -216,9 +216,9 @@ bot.command('help', async (ctx) => {
 // PREMIUM COMMAND
 bot.command('premium', async (ctx) => {
   const userId = ctx.from.id.toString();
-  const userData = verifiedUsers.get(userId);
+  const session = userSessions.get(userId);
   
-  if (!userData?.verified) {
+  if (!session?.verified) {
     return ctx.reply(`✗ Please verify first.`);
   }
   
@@ -237,9 +237,9 @@ bot.command('premium', async (ctx) => {
 // TOOLS COMMAND
 bot.command('tools', async (ctx) => {
   const userId = ctx.from.id.toString();
-  const userData = verifiedUsers.get(userId);
+  const session = userSessions.get(userId);
   
-  if (!userData?.verified) {
+  if (!session?.verified) {
     return ctx.reply(`✗ Please verify first.`);
   }
   
@@ -257,9 +257,9 @@ bot.command('tools', async (ctx) => {
 // ABOUT COMMAND
 bot.command('about', async (ctx) => {
   const userId = ctx.from.id.toString();
-  const userData = verifiedUsers.get(userId);
+  const session = userSessions.get(userId);
   
-  if (!userData?.verified) {
+  if (!session?.verified) {
     return ctx.reply(`✗ Please verify first.`);
   }
   
@@ -285,8 +285,8 @@ bot.command('admin', async (ctx) => {
     return ctx.reply(`✗ Unknown command.`);
   }
   
-  const totalUsers = verifiedUsers.size;
-  const verifiedCount = Array.from(verifiedUsers.values()).filter(u => u.verified).length;
+  const totalUsers = userSessions.size;
+  const verifiedCount = Array.from(userSessions.values()).filter(u => u.verified).length;
   
   await ctx.reply(
     `╔══════════════════════════╗\n` +
@@ -295,6 +295,20 @@ bot.command('admin', async (ctx) => {
     `Total Users: ${totalUsers}\n` +
     `Verified: ${verifiedCount}\n\n` +
     `◆ Admin commands coming soon.`
+  );
+});
+
+// CATCH ALL
+bot.on('text', async (ctx) => {
+  const userId = ctx.from.id.toString();
+  const session = userSessions.get(userId);
+  
+  if (!session?.verified) {
+    return ctx.reply(`✗ Please use /start and verify first.`);
+  }
+  
+  await ctx.reply(
+    `I received: ${ctx.message.text}\n\nUse /help for commands.`
   );
 });
 
