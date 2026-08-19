@@ -45,7 +45,7 @@ bot.command('start', async (ctx) => {
     );
   }
   
-  // ONLY 2 CHANNEL BUTTONS - NO 3RD BUTTON
+  // ONLY 2 CHANNEL BUTTONS
   const buttons = WHATSAPP_CHANNELS.map(channel => {
     return [Markup.button.url(`▶ ${channel.name}`, channel.link)];
   });
@@ -54,7 +54,8 @@ bot.command('start', async (ctx) => {
   userSessions.set(userId, {
     step: 'waiting_for_join',
     started: Date.now(),
-    verified: false
+    verified: false,
+    timerStarted: false
   });
   
   await ctx.reply(
@@ -66,113 +67,116 @@ bot.command('start', async (ctx) => {
     `▶ ${WHATSAPP_CHANNELS[0].name}\n` +
     `▶ ${WHATSAPP_CHANNELS[1].name}\n\n` +
     `⏳ Timer will start automatically after joining.\n` +
-    `📌 30 seconds countdown will begin...`,
+    `📌 30 seconds countdown will begin...\n\n` +
+    `💡 Send any message after joining to start timer.`,
     {
       ...Markup.inlineKeyboard(buttons)
     }
   );
 });
 
-// ---------- AUTO TIMER START - User ne dono channels join kar liye ----------
-// User will click on any channel link and come back
-// We'll detect when user sends any message after joining
-
+// ---------- HANDLE ALL MESSAGES - AUTO TIMER START ----------
 bot.on('text', async (ctx) => {
   const userId = ctx.from.id.toString();
   const session = userSessions.get(userId);
+  const text = ctx.message.text;
   
-  // If already verified
+  // If user is verified
   if (session?.verified) {
     return ctx.reply(
-      `I received: ${ctx.message.text}\n\nUse /help for commands.`
+      `I received: ${text}\n\nUse /help for commands.`
     );
   }
   
-  // If user is in waiting state - START AUTO TIMER
-  if (session?.step === 'waiting_for_join' || session?.step === 'timer_running') {
-    
-    // Check if timer already running
-    if (activeTimers.has(userId)) {
-      const remaining = activeTimers.get(userId);
-      return ctx.reply(
-        `⏳ Timer is already running.\n` +
-        `⏱️ ${remaining} seconds remaining...\n\n` +
-        `Please wait for the timer to complete.`
-      );
-    }
-    
-    // Check if user already verified
-    if (session?.readyToVerify) {
-      return ctx.reply(
-        `✓ You are ready to verify!\n` +
-        `Click "I Have Joined Both" button.`
-      );
-    }
-    
-    // START AUTO TIMER - 30 seconds
-    let countdown = 30;
+  // If user hasn't started verification
+  if (!session) {
+    return ctx.reply(
+      `✗ Please use /start first.`
+    );
+  }
+  
+  // Check if already verified in session
+  if (session.readyToVerify) {
+    return ctx.reply(
+      `✓ You are ready to verify!\n` +
+      `Click "I Have Joined Both" button.`
+    );
+  }
+  
+  // Check if timer already running
+  if (activeTimers.has(userId)) {
+    const remaining = activeTimers.get(userId);
+    return ctx.reply(
+      `⏳ Timer is already running.\n` +
+      `⏱️ ${remaining} seconds remaining...\n\n` +
+      `Please wait for the timer to complete.`
+    );
+  }
+  
+  // ⭐ START AUTO TIMER - 30 seconds
+  let countdown = 30;
+  activeTimers.set(userId, countdown);
+  
+  // Update session
+  userSessions.set(userId, {
+    ...session,
+    step: 'timer_running',
+    timerStarted: Date.now(),
+    timerStarted: true
+  });
+  
+  // Send initial timer message
+  await ctx.reply(
+    `╔══════════════════════════╗\n` +
+    `║   VERIFICATION STARTED   ║\n` +
+    `╚══════════════════════════╝\n\n` +
+    `✅ Both channels joined!\n\n` +
+    `⏳ Timer started: 30 seconds\n` +
+    `🔄 Please wait while we verify...\n\n` +
+    `⏱️ 30 seconds remaining...`
+  );
+  
+  // Create interval for live countdown - UPDATES EVERY 1 SECOND
+  const interval = setInterval(async () => {
+    countdown -= 1;
     activeTimers.set(userId, countdown);
     
-    // Update session
-    userSessions.set(userId, {
-      ...session,
-      step: 'timer_running',
-      timerStarted: Date.now()
-    });
-    
-    // Send initial timer message
-    await ctx.reply(
-      `╔══════════════════════════╗\n` +
-      `║   VERIFICATION STARTED   ║\n` +
-      `╚══════════════════════════╝\n\n` +
-      `✅ Both channels joined!\n\n` +
-      `⏳ Timer started: 30 seconds\n` +
-      `🔄 Please wait while we verify...\n\n` +
-      `⏱️ 30 seconds remaining...`
-    );
-    
-    // Create interval for live countdown - UPDATES EVERY 1 SECOND
-    const interval = setInterval(async () => {
-      countdown -= 1;
-      activeTimers.set(userId, countdown);
+    if (countdown > 0) {
+      // Update every second
+      await ctx.reply(
+        `⏱️ ${countdown} seconds remaining...`
+      );
+    } else {
+      // Timer complete - 30 seconds done
+      clearInterval(interval);
+      activeTimers.delete(userId);
       
-      if (countdown > 0) {
-        // Update every second
-        await ctx.reply(
-          `⏱️ ${countdown} seconds remaining...`
-        );
-      } else {
-        // Timer complete - 30 seconds done
-        clearInterval(interval);
-        activeTimers.delete(userId);
-        
-        // Enable verify button
-        const verifyButton = [
-          [Markup.button.callback('✓ I Have Joined Both', 'verify_now')]
-        ];
-        
-        // Update session
-        userSessions.set(userId, {
-          ...session,
-          step: 'ready_to_verify',
-          readyToVerify: true,
-          verified: false
-        });
-        
-        await ctx.reply(
-          `╔══════════════════════════╗\n` +
-          `║  VERIFICATION READY   ║\n` +
-          `╚══════════════════════════╝\n\n` +
-          `✅ Timer complete!\n\n` +
-          `✓ You have successfully waited 30 seconds.\n` +
-          `✓ Click the button below to complete verification.`,
-          {
-            ...Markup.inlineKeyboard(verifyButton)
-          }
-        );
-      }
-    }, 1000); // Update every 1 second
-  }
+      // Enable verify button
+      const verifyButton = [
+        [Markup.button.callback('✓ I Have Joined Both', 'verify_now')]
+      ];
+      
+      // Update session
+      userSessions.set(userId, {
+        ...session,
+        step: 'ready_to_verify',
+        readyToVerify: true,
+        verified: false
+      });
+      
+      await ctx.reply(
+        `╔══════════════════════════╗\n` +
+        `║  VERIFICATION READY   ║\n` +
+        `╚══════════════════════════╝\n\n` +
+        `✅ Timer complete!\n\n` +
+        `✓ You have successfully waited 30 seconds.\n` +
+        `✓ Click the button below to complete verification.`,
+        {
+          ...Markup.inlineKeyboard(verifyButton)
+        }
+      );
+    }
+  }, 1000); // Update every 1 second
 });
 
 // VERIFY NOW - Final verification
