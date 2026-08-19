@@ -12,14 +12,12 @@ const DATA_FILE = path.join(__dirname, 'data.json');
 // ---------- DATA PERSISTENCE ----------
 let data = {};
 
-// Load data from file
 const loadData = async () => {
   try {
     if (await fs.pathExists(DATA_FILE)) {
       data = await fs.readJson(DATA_FILE);
       console.log('✅ Data loaded from file');
     } else {
-      // Create default data
       data = {
         users: {},
         customCommands: {},
@@ -34,12 +32,12 @@ const loadData = async () => {
         whatsappChannels: [
           {
             id: 'channel1',
-            name: process.env.WHATSAPP_CHANNEL_1_NAME || 'Channel 1',
+            name: process.env.WHATSAPP_CHANNEL_1_NAME || 'HJH Tools Official',
             link: process.env.WHATSAPP_CHANNEL_1_LINK || '#'
           },
           {
             id: 'channel2',
-            name: process.env.WHATSAPP_CHANNEL_2_NAME || 'Channel 2',
+            name: process.env.WHATSAPP_CHANNEL_2_NAME || 'SBL Official',
             link: process.env.WHATSAPP_CHANNEL_2_LINK || '#'
           }
         ]
@@ -52,7 +50,6 @@ const loadData = async () => {
   }
 };
 
-// Save data to file
 const saveData = async () => {
   try {
     await fs.writeJson(DATA_FILE, data, { spaces: 2 });
@@ -85,19 +82,33 @@ bot.command('start', async (ctx) => {
   const userId = String(ctx.from.id);
   const users = getUserSessions();
   
+  // If already verified
   if (users[userId]?.verified) {
     return ctx.reply(getBotSettings().welcomeBackMessage);
   }
   
+  // ✅ GET CHANNELS FROM DATA
   const channels = getWhatsAppChannels();
-  const buttons = channels.map(channel => {
-    return [Markup.button.url(`▶ ${channel.name}`, channel.link)];
+  console.log('📢 Channels loaded:', channels); // Debug log
+  
+  // ✅ CREATE BUTTONS - CHANNEL LINKS
+  const buttons = [];
+  
+  // Add channel buttons
+  channels.forEach(channel => {
+    if (channel.link && channel.link !== '#') {
+      buttons.push([Markup.button.url(`📱 ${channel.name}`, channel.link)]);
+    } else {
+      buttons.push([Markup.button.callback(`📱 ${channel.name} (Link missing)`, 'no_link')]);
+    }
   });
   
+  // ✅ ADD VERIFY BUTTON
   buttons.push([
-    Markup.button.callback('✓ I Have Joined Both', 'check_verify')
+    Markup.button.callback('✅ I Have Joined Both', 'check_verify')
   ]);
   
+  // Store user session
   users[userId] = {
     step: 'waiting_for_join',
     started: Date.now(),
@@ -107,14 +118,26 @@ bot.command('start', async (ctx) => {
   };
   setUserSessions(users);
   
+  // ✅ BUILD MESSAGE WITH CHANNEL NAMES
   let msg = getBotSettings().verificationMessage
     .replace(/{name}/g, ctx.from.first_name)
     .replace(/{channel1}/g, channels[0]?.name || 'Channel 1')
     .replace(/{channel2}/g, channels[1]?.name || 'Channel 2');
   
+  // ✅ SEND WITH BUTTONS
   await ctx.reply(msg, {
     ...Markup.inlineKeyboard(buttons)
   });
+});
+
+// NO LINK HANDLER
+bot.action('no_link', async (ctx) => {
+  await ctx.answerCbQuery();
+  await ctx.reply(
+    `⚠️ Channel link is missing!\n\n` +
+    `Please update the channel link in admin panel.\n` +
+    `Go to Settings → Update Channels.`
+  );
 });
 
 // SCREENSHOT HANDLER
@@ -379,8 +402,6 @@ app.use(express.urlencoded({ extended: true }));
 app.use(express.static(path.join(__dirname, 'public')));
 
 // ---------- ADMIN PANEL API ----------
-
-// Auth Middleware
 const authAdmin = (req, res, next) => {
   const userId = req.headers['x-user-id'];
   if (userId !== ADMIN_ID) {
@@ -389,7 +410,6 @@ const authAdmin = (req, res, next) => {
   next();
 };
 
-// GET STATS
 app.get('/api/admin/stats', authAdmin, (req, res) => {
   const users = getUserSessions();
   const cmds = getCustomCommands();
@@ -405,7 +425,6 @@ app.get('/api/admin/stats', authAdmin, (req, res) => {
   });
 });
 
-// GET USERS
 app.get('/api/admin/users', authAdmin, (req, res) => {
   const users = getUserSessions();
   const userList = Object.entries(users).map(([id, data]) => ({
@@ -415,7 +434,6 @@ app.get('/api/admin/users', authAdmin, (req, res) => {
   res.json(userList);
 });
 
-// GET COMMANDS
 app.get('/api/admin/commands', authAdmin, (req, res) => {
   const cmds = getCustomCommands();
   const commands = Object.entries(cmds).map(([cmd, response]) => ({
@@ -425,7 +443,6 @@ app.get('/api/admin/commands', authAdmin, (req, res) => {
   res.json(commands);
 });
 
-// ADD COMMAND
 app.post('/api/admin/commands', authAdmin, (req, res) => {
   const { command, response } = req.body;
   
@@ -443,7 +460,6 @@ app.post('/api/admin/commands', authAdmin, (req, res) => {
   res.json({ success: true, command, response });
 });
 
-// UPDATE COMMAND
 app.put('/api/admin/commands/:command', authAdmin, (req, res) => {
   const { command } = req.params;
   const { response } = req.body;
@@ -462,7 +478,6 @@ app.put('/api/admin/commands/:command', authAdmin, (req, res) => {
   res.json({ success: true, command, response });
 });
 
-// DELETE COMMAND
 app.delete('/api/admin/commands/:command', authAdmin, (req, res) => {
   const { command } = req.params;
   const cmds = getCustomCommands();
@@ -476,7 +491,6 @@ app.delete('/api/admin/commands/:command', authAdmin, (req, res) => {
   res.json({ success: true });
 });
 
-// GET TOOLS
 app.get('/api/admin/tools', authAdmin, (req, res) => {
   const tools = getTools();
   const toolList = Object.entries(tools).map(([id, tool]) => ({
@@ -486,7 +500,6 @@ app.get('/api/admin/tools', authAdmin, (req, res) => {
   res.json(toolList);
 });
 
-// ADD TOOL
 app.post('/api/admin/tools', authAdmin, (req, res) => {
   const { name, description, link } = req.body;
   
@@ -501,7 +514,6 @@ app.post('/api/admin/tools', authAdmin, (req, res) => {
   res.json({ success: true, id, name, description, link });
 });
 
-// UPDATE TOOL
 app.put('/api/admin/tools/:id', authAdmin, (req, res) => {
   const { id } = req.params;
   const { name, description, link } = req.body;
@@ -516,7 +528,6 @@ app.put('/api/admin/tools/:id', authAdmin, (req, res) => {
   res.json({ success: true });
 });
 
-// DELETE TOOL
 app.delete('/api/admin/tools/:id', authAdmin, (req, res) => {
   const { id } = req.params;
   const tools = getTools();
@@ -530,7 +541,6 @@ app.delete('/api/admin/tools/:id', authAdmin, (req, res) => {
   res.json({ success: true });
 });
 
-// BROADCAST
 app.post('/api/admin/broadcast', authAdmin, async (req, res) => {
   const { message } = req.body;
   
@@ -556,7 +566,6 @@ app.post('/api/admin/broadcast', authAdmin, async (req, res) => {
   res.json({ success: true, sent, failed, total: userIds.length });
 });
 
-// GET SETTINGS
 app.get('/api/admin/settings', authAdmin, (req, res) => {
   res.json({
     settings: getBotSettings(),
@@ -564,7 +573,6 @@ app.get('/api/admin/settings', authAdmin, (req, res) => {
   });
 });
 
-// UPDATE SETTINGS
 app.put('/api/admin/settings', authAdmin, (req, res) => {
   const { settings, channels } = req.body;
   
@@ -588,7 +596,6 @@ app.put('/api/admin/settings', authAdmin, (req, res) => {
   res.json({ success: true });
 });
 
-// VERIFY/UNVERIFY USER
 app.post('/api/admin/users/:userId/verify', authAdmin, (req, res) => {
   const { userId } = req.params;
   const { verified } = req.body;
@@ -654,7 +661,6 @@ const setWebhook = async () => {
 // ---------- START SERVER ----------
 const PORT = process.env.PORT || 3000;
 
-// Load data first, then start server
 loadData().then(() => {
   app.listen(PORT, async () => {
     console.log(`🚀 Server running on port ${PORT}`);
