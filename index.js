@@ -1,57 +1,96 @@
 const express = require('express');
 const { Telegraf, session, Markup } = require('telegraf');
 const path = require('path');
+const fs = require('fs-extra');
 require('dotenv').config();
 
 // ---------- CONFIG ----------
 const BOT_TOKEN = process.env.BOT_TOKEN;
 const ADMIN_ID = process.env.ADMIN_ID;
+const DATA_FILE = path.join(__dirname, 'data.json');
 
-// WhatsApp Channels from .env
-let WHATSAPP_CHANNELS = [
-  {
-    id: 'channel1',
-    name: process.env.WHATSAPP_CHANNEL_1_NAME || 'Channel 1',
-    link: process.env.WHATSAPP_CHANNEL_1_LINK || '#'
-  },
-  {
-    id: 'channel2',
-    name: process.env.WHATSAPP_CHANNEL_2_NAME || 'Channel 2',
-    link: process.env.WHATSAPP_CHANNEL_2_LINK || '#'
+// ---------- DATA PERSISTENCE ----------
+let data = {};
+
+// Load data from file
+const loadData = async () => {
+  try {
+    if (await fs.pathExists(DATA_FILE)) {
+      data = await fs.readJson(DATA_FILE);
+      console.log('✅ Data loaded from file');
+    } else {
+      // Create default data
+      data = {
+        users: {},
+        customCommands: {},
+        tools: {},
+        botSettings: {
+          verificationMessage: `╔══════════════════════════╗\n║   VERIFICATION REQUIRED  ║\n╚══════════════════════════╝\n\nHello {name},\n\n⚠️ Please join BOTH WhatsApp channels:\n\n▶ {channel1}\n▶ {channel2}\n\n📸 After joining, send a SCREENSHOT of both channels.\n✅ Then click "I Have Joined Both" to verify.`,
+          verifiedMessage: `╔══════════════════════════╗\n║  VERIFICATION SUCCESSFUL ║\n╚══════════════════════════╝\n\n✅ All commands are now unlocked!\n\nUse /help to see available commands.`,
+          welcomeBackMessage: `╔══════════════════════════╗\n║   WELCOME BACK   ║\n╚══════════════════════════╝\n\n✓ You are already verified.\nUse /help for commands.`,
+          screenshotReceived: `╔══════════════════════════╗\n║   SCREENSHOT RECEIVED   ║\n╚══════════════════════════╝\n\n✅ Screenshot received successfully!\n\n🔄 Now click "I Have Joined Both" to complete verification.`,
+          screenshotRequired: `╔══════════════════════════╗\n║   SCREENSHOT REQUIRED   ║\n╚══════════════════════════╝\n\n❌ You haven't sent a screenshot yet!\n\n📸 Please:\n1. Join both WhatsApp channels\n2. Take a screenshot\n3. Send it here\n4. Then click "I Have Joined Both" again`
+        },
+        whatsappChannels: [
+          {
+            id: 'channel1',
+            name: process.env.WHATSAPP_CHANNEL_1_NAME || 'Channel 1',
+            link: process.env.WHATSAPP_CHANNEL_1_LINK || '#'
+          },
+          {
+            id: 'channel2',
+            name: process.env.WHATSAPP_CHANNEL_2_NAME || 'Channel 2',
+            link: process.env.WHATSAPP_CHANNEL_2_LINK || '#'
+          }
+        ]
+      };
+      await saveData();
+      console.log('✅ Default data created');
+    }
+  } catch (error) {
+    console.error('❌ Error loading data:', error);
   }
-];
+};
+
+// Save data to file
+const saveData = async () => {
+  try {
+    await fs.writeJson(DATA_FILE, data, { spaces: 2 });
+    console.log('✅ Data saved to file');
+  } catch (error) {
+    console.error('❌ Error saving data:', error);
+  }
+};
 
 // ---------- BOT INIT ----------
 const bot = new Telegraf(BOT_TOKEN);
 bot.use(session());
 
-// ---------- DATABASE (In-Memory) ----------
-const userSessions = new Map();
-const customCommands = new Map();
-const tools = new Map();
-const pendingBroadcasts = new Map();
-
-// Default bot settings
-let botSettings = {
-  verificationMessage: `╔══════════════════════════╗\n║   VERIFICATION REQUIRED  ║\n╚══════════════════════════╝\n\nHello {name},\n\n⚠️ Please join BOTH WhatsApp channels:\n\n▶ {channel1}\n▶ {channel2}\n\n📸 After joining, send a SCREENSHOT of both channels.\n✅ Then click "I Have Joined Both" to verify.`,
-  verifiedMessage: `╔══════════════════════════╗\n║  VERIFICATION SUCCESSFUL ║\n╚══════════════════════════╝\n\n✅ All commands are now unlocked!\n\nUse /help to see available commands.`,
-  welcomeBackMessage: `╔══════════════════════════╗\n║   WELCOME BACK   ║\n╚══════════════════════════╝\n\n✓ You are already verified.\nUse /help for commands.`,
-  screenshotReceived: `╔══════════════════════════╗\n║   SCREENSHOT RECEIVED   ║\n╚══════════════════════════╝\n\n✅ Screenshot received successfully!\n\n🔄 Now click "I Have Joined Both" to complete verification.`,
-  screenshotRequired: `╔══════════════════════════╗\n║   SCREENSHOT REQUIRED   ║\n╚══════════════════════════╝\n\n❌ You haven't sent a screenshot yet!\n\n📸 Please:\n1. Join both WhatsApp channels\n2. Take a screenshot\n3. Send it here\n4. Then click "I Have Joined Both" again`,
-  timerSeconds: 30
-};
+// ---------- HELPER FUNCTIONS ----------
+const getUserSessions = () => data.users || {};
+const setUserSessions = (users) => { data.users = users; saveData(); };
+const getCustomCommands = () => data.customCommands || {};
+const setCustomCommands = (cmds) => { data.customCommands = cmds; saveData(); };
+const getTools = () => data.tools || {};
+const setTools = (tools) => { data.tools = tools; saveData(); };
+const getBotSettings = () => data.botSettings || {};
+const setBotSettings = (settings) => { data.botSettings = settings; saveData(); };
+const getWhatsAppChannels = () => data.whatsappChannels || [];
+const setWhatsAppChannels = (channels) => { data.whatsappChannels = channels; saveData(); };
 
 // ---------- BOT COMMANDS ----------
 
 // START COMMAND
 bot.command('start', async (ctx) => {
   const userId = String(ctx.from.id);
+  const users = getUserSessions();
   
-  if (userSessions.has(userId) && userSessions.get(userId)?.verified) {
-    return ctx.reply(botSettings.welcomeBackMessage);
+  if (users[userId]?.verified) {
+    return ctx.reply(getBotSettings().welcomeBackMessage);
   }
   
-  const buttons = WHATSAPP_CHANNELS.map(channel => {
+  const channels = getWhatsAppChannels();
+  const buttons = channels.map(channel => {
     return [Markup.button.url(`▶ ${channel.name}`, channel.link)];
   });
   
@@ -59,18 +98,19 @@ bot.command('start', async (ctx) => {
     Markup.button.callback('✓ I Have Joined Both', 'check_verify')
   ]);
   
-  userSessions.set(userId, {
+  users[userId] = {
     step: 'waiting_for_join',
     started: Date.now(),
     verified: false,
     screenshotSent: false,
     readyToVerify: false
-  });
+  };
+  setUserSessions(users);
   
-  let msg = botSettings.verificationMessage
+  let msg = getBotSettings().verificationMessage
     .replace(/{name}/g, ctx.from.first_name)
-    .replace(/{channel1}/g, WHATSAPP_CHANNELS[0].name)
-    .replace(/{channel2}/g, WHATSAPP_CHANNELS[1].name);
+    .replace(/{channel1}/g, channels[0]?.name || 'Channel 1')
+    .replace(/{channel2}/g, channels[1]?.name || 'Channel 2');
   
   await ctx.reply(msg, {
     ...Markup.inlineKeyboard(buttons)
@@ -80,21 +120,19 @@ bot.command('start', async (ctx) => {
 // SCREENSHOT HANDLER
 bot.on('photo', async (ctx) => {
   const userId = String(ctx.from.id);
+  const users = getUserSessions();
   
-  if (!userSessions.has(userId)) {
+  if (!users[userId]) {
     return ctx.reply(`✗ Please use /start first.`);
   }
   
-  const session = userSessions.get(userId);
-  if (session.verified) return ctx.reply(`✓ You are already verified!`);
+  if (users[userId].verified) return ctx.reply(`✓ You are already verified!`);
   
-  userSessions.set(userId, {
-    ...session,
-    screenshotSent: true,
-    step: 'screenshot_received'
-  });
+  users[userId].screenshotSent = true;
+  users[userId].step = 'screenshot_received';
+  setUserSessions(users);
   
-  await ctx.reply(botSettings.screenshotReceived);
+  await ctx.reply(getBotSettings().screenshotReceived);
   
   if (ADMIN_ID) {
     try {
@@ -107,26 +145,24 @@ bot.on('photo', async (ctx) => {
   }
 });
 
-// DOCUMENT HANDLER (for screenshots sent as files)
+// DOCUMENT HANDLER
 bot.on('document', async (ctx) => {
   const userId = String(ctx.from.id);
+  const users = getUserSessions();
   
-  if (!userSessions.has(userId)) {
+  if (!users[userId]) {
     return ctx.reply(`✗ Please use /start first.`);
   }
   
-  const session = userSessions.get(userId);
-  if (session.verified) return ctx.reply(`✓ You are already verified!`);
+  if (users[userId].verified) return ctx.reply(`✓ You are already verified!`);
   
   const mimeType = ctx.message.document.mime_type;
   if (mimeType && mimeType.startsWith('image/')) {
-    userSessions.set(userId, {
-      ...session,
-      screenshotSent: true,
-      step: 'screenshot_received'
-    });
+    users[userId].screenshotSent = true;
+    users[userId].step = 'screenshot_received';
+    setUserSessions(users);
     
-    await ctx.reply(botSettings.screenshotReceived);
+    await ctx.reply(getBotSettings().screenshotReceived);
     
     if (ADMIN_ID) {
       try {
@@ -143,28 +179,29 @@ bot.action('check_verify', async (ctx) => {
   await ctx.answerCbQuery();
   
   const userId = String(ctx.from.id);
+  const users = getUserSessions();
   
-  if (!userSessions.has(userId)) {
+  if (!users[userId]) {
     return ctx.reply(`✗ Please use /start first.`);
   }
   
-  const session = userSessions.get(userId);
-  if (session.verified) return ctx.reply(`✓ You are already verified!`);
+  if (users[userId].verified) return ctx.reply(`✓ You are already verified!`);
   
-  if (!session.screenshotSent) {
-    return ctx.reply(botSettings.screenshotRequired);
+  if (!users[userId].screenshotSent) {
+    return ctx.reply(getBotSettings().screenshotRequired);
   }
   
-  userSessions.set(userId, {
+  users[userId] = {
     verified: true,
     verifiedAt: new Date().toISOString(),
     username: ctx.from.username,
     firstName: ctx.from.first_name,
     step: 'verified',
     screenshotSent: true
-  });
+  };
+  setUserSessions(users);
   
-  await ctx.reply(botSettings.verifiedMessage);
+  await ctx.reply(getBotSettings().verifiedMessage);
   
   // Send command list
   let commandsList = `╔══════════════════════════╗\n║    COMMANDS   ║\n╚══════════════════════════╝\n\n`;
@@ -174,7 +211,8 @@ bot.action('check_verify', async (ctx) => {
   commandsList += `▶ /tools - Available tools\n`;
   commandsList += `▶ /about - About this bot\n`;
   
-  for (const [cmd, response] of customCommands) {
+  const cmds = getCustomCommands();
+  for (const [cmd, response] of Object.entries(cmds)) {
     commandsList += `▶ /${cmd} - ${response.split('\n')[0]}\n`;
   }
   
@@ -185,8 +223,9 @@ bot.action('check_verify', async (ctx) => {
 // HELP COMMAND
 bot.command('help', async (ctx) => {
   const userId = String(ctx.from.id);
+  const users = getUserSessions();
   
-  if (!userSessions.has(userId) || !userSessions.get(userId)?.verified) {
+  if (!users[userId]?.verified) {
     return ctx.reply(`✗ Please use /start and verify first.`);
   }
   
@@ -198,7 +237,8 @@ bot.command('help', async (ctx) => {
   helpText += `▶ /about - About this bot\n`;
   helpText += `▶ /admin - Admin panel (admin only)\n`;
   
-  for (const [cmd, response] of customCommands) {
+  const cmds = getCustomCommands();
+  for (const [cmd, response] of Object.entries(cmds)) {
     helpText += `▶ /${cmd} - ${response.split('\n')[0]}\n`;
   }
   
@@ -209,8 +249,9 @@ bot.command('help', async (ctx) => {
 // PREMIUM COMMAND
 bot.command('premium', async (ctx) => {
   const userId = String(ctx.from.id);
+  const users = getUserSessions();
   
-  if (!userSessions.has(userId) || !userSessions.get(userId)?.verified) {
+  if (!users[userId]?.verified) {
     return ctx.reply(`✗ Please verify first.`);
   }
   
@@ -229,17 +270,19 @@ bot.command('premium', async (ctx) => {
 // TOOLS COMMAND
 bot.command('tools', async (ctx) => {
   const userId = String(ctx.from.id);
+  const users = getUserSessions();
   
-  if (!userSessions.has(userId) || !userSessions.get(userId)?.verified) {
+  if (!users[userId]?.verified) {
     return ctx.reply(`✗ Please verify first.`);
   }
   
+  const tools = getTools();
   let toolsText = `╔══════════════════════════╗\n║    TOOLS   ║\n╚══════════════════════════╝\n\n`;
   
-  if (tools.size === 0) {
+  if (Object.keys(tools).length === 0) {
     toolsText += `No tools available. Contact admin to add tools.`;
   } else {
-    for (const [id, tool] of tools) {
+    for (const [id, tool] of Object.entries(tools)) {
       toolsText += `◆ ${tool.name}\n`;
       toolsText += `   ${tool.description}\n`;
       if (tool.link) toolsText += `   🔗 ${tool.link}\n`;
@@ -253,8 +296,9 @@ bot.command('tools', async (ctx) => {
 // ABOUT COMMAND
 bot.command('about', async (ctx) => {
   const userId = String(ctx.from.id);
+  const users = getUserSessions();
   
-  if (!userSessions.has(userId) || !userSessions.get(userId)?.verified) {
+  if (!users[userId]?.verified) {
     return ctx.reply(`✗ Please verify first.`);
   }
   
@@ -282,18 +326,17 @@ bot.use(async (ctx, next) => {
   if (!text.startsWith('/')) return next();
   
   const command = text.slice(1).split(' ')[0].toLowerCase();
+  const cmds = getCustomCommands();
   
-  // Check if it's a custom command
-  if (customCommands.has(command)) {
+  if (cmds[command]) {
     const userId = String(ctx.from.id);
-    const session = userSessions.get(userId);
+    const users = getUserSessions();
     
-    if (!session?.verified) {
+    if (!users[userId]?.verified) {
       return ctx.reply(`✗ Please use /start and verify first.`);
     }
     
-    const response = customCommands.get(command);
-    return ctx.reply(response);
+    return ctx.reply(cmds[command]);
   }
   
   return next();
@@ -307,9 +350,12 @@ bot.command('admin', async (ctx) => {
     return ctx.reply(`✗ Unknown command.`);
   }
   
-  const totalUsers = userSessions.size;
-  const verifiedCount = Array.from(userSessions.values()).filter(u => u.verified).length;
-  const screenshotCount = Array.from(userSessions.values()).filter(u => u.screenshotSent).length;
+  const users = getUserSessions();
+  const totalUsers = Object.keys(users).length;
+  const verifiedCount = Object.values(users).filter(u => u.verified).length;
+  const screenshotCount = Object.values(users).filter(u => u.screenshotSent).length;
+  const cmds = getCustomCommands();
+  const tools = getTools();
   
   await ctx.reply(
     `╔══════════════════════════╗\n` +
@@ -319,8 +365,8 @@ bot.command('admin', async (ctx) => {
     `Total Users: ${totalUsers}\n` +
     `Verified: ${verifiedCount}\n` +
     `Screenshots: ${screenshotCount}\n` +
-    `Custom Commands: ${customCommands.size}\n` +
-    `Tools: ${tools.size}\n\n` +
+    `Custom Commands: ${Object.keys(cmds).length}\n` +
+    `Tools: ${Object.keys(tools).length}\n\n` +
     `🌐 Admin Panel: https://hjh-premium-telegram-bot.vercel.app/hjh-admin\n` +
     `🔑 Use your Telegram ID to login.`
   );
@@ -345,38 +391,37 @@ const authAdmin = (req, res, next) => {
 
 // GET STATS
 app.get('/api/admin/stats', authAdmin, (req, res) => {
-  const totalUsers = userSessions.size;
-  const verifiedCount = Array.from(userSessions.values()).filter(u => u.verified).length;
-  const screenshotCount = Array.from(userSessions.values()).filter(u => u.screenshotSent).length;
+  const users = getUserSessions();
+  const cmds = getCustomCommands();
+  const tools = getTools();
   
   res.json({
-    totalUsers,
-    verifiedCount,
-    screenshotCount,
-    customCommands: customCommands.size,
-    tools: tools.size,
-    whatsappChannels: WHATSAPP_CHANNELS
+    totalUsers: Object.keys(users).length,
+    verifiedCount: Object.values(users).filter(u => u.verified).length,
+    screenshotCount: Object.values(users).filter(u => u.screenshotSent).length,
+    customCommands: Object.keys(cmds).length,
+    tools: Object.keys(tools).length,
+    whatsappChannels: getWhatsAppChannels()
   });
 });
 
 // GET USERS
 app.get('/api/admin/users', authAdmin, (req, res) => {
-  const users = [];
-  for (const [id, data] of userSessions) {
-    users.push({
-      userId: id,
-      ...data
-    });
-  }
-  res.json(users);
+  const users = getUserSessions();
+  const userList = Object.entries(users).map(([id, data]) => ({
+    userId: id,
+    ...data
+  }));
+  res.json(userList);
 });
 
 // GET COMMANDS
 app.get('/api/admin/commands', authAdmin, (req, res) => {
-  const commands = [];
-  for (const [cmd, response] of customCommands) {
-    commands.push({ command: cmd, response });
-  }
+  const cmds = getCustomCommands();
+  const commands = Object.entries(cmds).map(([cmd, response]) => ({
+    command: cmd,
+    response
+  }));
   res.json(commands);
 });
 
@@ -388,33 +433,57 @@ app.post('/api/admin/commands', authAdmin, (req, res) => {
     return res.status(400).json({ error: 'Command and response required' });
   }
   
-  if (customCommands.has(command)) {
+  const cmds = getCustomCommands();
+  if (cmds[command]) {
     return res.status(400).json({ error: 'Command already exists' });
   }
   
-  customCommands.set(command, response);
+  cmds[command] = response;
+  setCustomCommands(cmds);
+  res.json({ success: true, command, response });
+});
+
+// UPDATE COMMAND
+app.put('/api/admin/commands/:command', authAdmin, (req, res) => {
+  const { command } = req.params;
+  const { response } = req.body;
+  
+  if (!response) {
+    return res.status(400).json({ error: 'Response required' });
+  }
+  
+  const cmds = getCustomCommands();
+  if (!cmds[command]) {
+    return res.status(404).json({ error: 'Command not found' });
+  }
+  
+  cmds[command] = response;
+  setCustomCommands(cmds);
   res.json({ success: true, command, response });
 });
 
 // DELETE COMMAND
 app.delete('/api/admin/commands/:command', authAdmin, (req, res) => {
   const { command } = req.params;
+  const cmds = getCustomCommands();
   
-  if (!customCommands.has(command)) {
+  if (!cmds[command]) {
     return res.status(404).json({ error: 'Command not found' });
   }
   
-  customCommands.delete(command);
+  delete cmds[command];
+  setCustomCommands(cmds);
   res.json({ success: true });
 });
 
 // GET TOOLS
 app.get('/api/admin/tools', authAdmin, (req, res) => {
-  const toolsList = [];
-  for (const [id, tool] of tools) {
-    toolsList.push({ id, ...tool });
-  }
-  res.json(toolsList);
+  const tools = getTools();
+  const toolList = Object.entries(tools).map(([id, tool]) => ({
+    id,
+    ...tool
+  }));
+  res.json(toolList);
 });
 
 // ADD TOOL
@@ -425,20 +494,39 @@ app.post('/api/admin/tools', authAdmin, (req, res) => {
     return res.status(400).json({ error: 'Name and description required' });
   }
   
+  const tools = getTools();
   const id = Date.now().toString();
-  tools.set(id, { name, description, link: link || '' });
+  tools[id] = { name, description, link: link || '' };
+  setTools(tools);
   res.json({ success: true, id, name, description, link });
+});
+
+// UPDATE TOOL
+app.put('/api/admin/tools/:id', authAdmin, (req, res) => {
+  const { id } = req.params;
+  const { name, description, link } = req.body;
+  
+  const tools = getTools();
+  if (!tools[id]) {
+    return res.status(404).json({ error: 'Tool not found' });
+  }
+  
+  tools[id] = { name, description, link: link || '' };
+  setTools(tools);
+  res.json({ success: true });
 });
 
 // DELETE TOOL
 app.delete('/api/admin/tools/:id', authAdmin, (req, res) => {
   const { id } = req.params;
+  const tools = getTools();
   
-  if (!tools.has(id)) {
+  if (!tools[id]) {
     return res.status(404).json({ error: 'Tool not found' });
   }
   
-  tools.delete(id);
+  delete tools[id];
+  setTools(tools);
   res.json({ success: true });
 });
 
@@ -450,11 +538,12 @@ app.post('/api/admin/broadcast', authAdmin, async (req, res) => {
     return res.status(400).json({ error: 'Message required' });
   }
   
-  const users = Array.from(userSessions.keys());
+  const users = getUserSessions();
+  const userIds = Object.keys(users);
   let sent = 0;
   let failed = 0;
   
-  for (const userId of users) {
+  for (const userId of userIds) {
     try {
       await bot.telegram.sendMessage(userId, message, { parse_mode: 'Markdown' });
       sent++;
@@ -464,14 +553,14 @@ app.post('/api/admin/broadcast', authAdmin, async (req, res) => {
     }
   }
   
-  res.json({ success: true, sent, failed, total: users.length });
+  res.json({ success: true, sent, failed, total: userIds.length });
 });
 
 // GET SETTINGS
 app.get('/api/admin/settings', authAdmin, (req, res) => {
   res.json({
-    settings: botSettings,
-    channels: WHATSAPP_CHANNELS
+    settings: getBotSettings(),
+    channels: getWhatsAppChannels()
   });
 });
 
@@ -480,16 +569,20 @@ app.put('/api/admin/settings', authAdmin, (req, res) => {
   const { settings, channels } = req.body;
   
   if (settings) {
-    Object.assign(botSettings, settings);
+    const currentSettings = getBotSettings();
+    Object.assign(currentSettings, settings);
+    setBotSettings(currentSettings);
   }
   
   if (channels && Array.isArray(channels)) {
+    const currentChannels = getWhatsAppChannels();
     channels.forEach((ch, i) => {
-      if (WHATSAPP_CHANNELS[i]) {
-        if (ch.name) WHATSAPP_CHANNELS[i].name = ch.name;
-        if (ch.link) WHATSAPP_CHANNELS[i].link = ch.link;
+      if (currentChannels[i]) {
+        if (ch.name) currentChannels[i].name = ch.name;
+        if (ch.link) currentChannels[i].link = ch.link;
       }
     });
+    setWhatsAppChannels(currentChannels);
   }
   
   res.json({ success: true });
@@ -500,14 +593,13 @@ app.post('/api/admin/users/:userId/verify', authAdmin, (req, res) => {
   const { userId } = req.params;
   const { verified } = req.body;
   
-  if (!userSessions.has(userId)) {
+  const users = getUserSessions();
+  if (!users[userId]) {
     return res.status(404).json({ error: 'User not found' });
   }
   
-  const session = userSessions.get(userId);
-  session.verified = verified;
-  userSessions.set(userId, session);
-  
+  users[userId].verified = verified;
+  setUserSessions(users);
   res.json({ success: true });
 });
 
@@ -539,11 +631,12 @@ app.get('/', (req, res) => {
 });
 
 app.get('/health', (req, res) => {
+  const users = getUserSessions();
   res.json({
     status: 'healthy',
     timestamp: new Date().toISOString(),
-    users: userSessions.size,
-    verified: Array.from(userSessions.values()).filter(u => u.verified).length
+    users: Object.keys(users).length,
+    verified: Object.values(users).filter(u => u.verified).length
   });
 });
 
@@ -560,10 +653,14 @@ const setWebhook = async () => {
 
 // ---------- START SERVER ----------
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, async () => {
-  console.log(`🚀 Server running on port ${PORT}`);
-  console.log(`🌐 Admin Panel: https://hjh-premium-telegram-bot.vercel.app/hjh-admin`);
-  await setWebhook();
+
+// Load data first, then start server
+loadData().then(() => {
+  app.listen(PORT, async () => {
+    console.log(`🚀 Server running on port ${PORT}`);
+    console.log(`🌐 Admin Panel: https://hjh-premium-telegram-bot.vercel.app/hjh-admin`);
+    await setWebhook();
+  });
 });
 
 module.exports = app;
