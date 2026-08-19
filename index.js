@@ -25,6 +25,7 @@ bot.use(session());
 
 // Store user sessions
 const userSessions = new Map();
+const activeTimers = new Map();
 
 // ---------- COMMANDS ----------
 
@@ -49,10 +50,17 @@ bot.command('start', async (ctx) => {
     return [Markup.button.url(`▶ ${channel.name}`, channel.link)];
   });
   
-  // Add join button
+  // Add "I Have Joined Both" button (will be auto-enabled after 30 sec)
   buttons.push([
-    Markup.button.callback('⏳ Join Channels First', 'check_join')
+    Markup.button.callback('⏳ Please join both channels', 'auto_verify')
   ]);
+  
+  // Store that user is in verification process
+  userSessions.set(userId, {
+    step: 'waiting_for_join',
+    started: Date.now(),
+    verified: false
+  });
   
   await ctx.reply(
     `╔══════════════════════════╗\n` +
@@ -62,84 +70,108 @@ bot.command('start', async (ctx) => {
     `⚠️ Please join BOTH WhatsApp channels:\n\n` +
     `▶ ${WHATSAPP_CHANNELS[0].name}\n` +
     `▶ ${WHATSAPP_CHANNELS[1].name}\n\n` +
-    `📌 Click "Join Channels First" after joining.\n` +
-    `⏳ Then wait 30 seconds for verification.`,
+    `📌 After joining both channels, timer will start automatically.\n` +
+    `⏳ 30 seconds countdown will begin...`,
     {
       ...Markup.inlineKeyboard(buttons)
     }
   );
 });
 
-// CHECK JOIN - User ne join kar liya
-bot.action('check_join', async (ctx) => {
+// AUTO VERIFY - User ne dono channels join kar liye
+bot.action('auto_verify', async (ctx) => {
   await ctx.answerCbQuery();
   
   const userId = ctx.from.id.toString();
   const session = userSessions.get(userId);
   
+  // Check if already verified
   if (session?.verified) {
     return ctx.reply(`✓ You are already verified!`);
   }
   
-  // Show waiting message with timer
-  const startTime = Date.now();
+  // Check if timer already running
+  if (activeTimers.has(userId)) {
+    return ctx.reply(
+      `⏳ Timer is already running.\n` +
+      `Please wait ${activeTimers.get(userId)} seconds...`
+    );
+  }
   
-  // Initial message
+  // Check if user already verified
+  if (session?.readyToVerify) {
+    return ctx.reply(
+      `✓ You are ready to verify!\n` +
+      `Click "I Have Joined Both" button.`
+    );
+  }
+  
+  // START AUTO TIMER - 30 seconds
+  let countdown = 30;
+  activeTimers.set(userId, countdown);
+  
+  // Update session
+  userSessions.set(userId, {
+    ...session,
+    step: 'timer_running',
+    timerStarted: Date.now()
+  });
+  
+  // Send initial timer message
   await ctx.reply(
     `╔══════════════════════════╗\n` +
     `║   VERIFICATION STARTED   ║\n` +
     `╚══════════════════════════╝\n\n` +
-    `✓ Checking channel membership...\n\n` +
-    `⏳ Please wait 30 seconds...\n` +
-    `🔄 Verification will be available soon.`
+    `✓ Both channels joined! ✅\n\n` +
+    `⏳ Timer started: 30 seconds\n` +
+    `🔄 Please wait while we verify...\n\n` +
+    `⏱️ ${countdown} seconds remaining...`
   );
   
-  // Update user session with timer
-  userSessions.set(userId, {
-    startTime: startTime,
-    waiting: true,
-    verified: false
-  });
-  
-  // Send progress messages
-  let countdown = 30;
-  
+  // Create interval for live countdown
   const interval = setInterval(async () => {
-    countdown -= 5;
+    countdown -= 1;
+    activeTimers.set(userId, countdown);
     
     if (countdown > 0) {
-      await ctx.reply(
-        `⏳ ${countdown} seconds remaining...\n` +
-        `Please stay on this chat.`
-      );
+      // Update countdown every 5 seconds
+      if (countdown % 5 === 0 || countdown <= 3) {
+        await ctx.reply(
+          `⏱️ ${countdown} seconds remaining...\n` +
+          `Please stay on this chat.`
+        );
+      }
     } else {
+      // Timer complete - 30 seconds done
       clearInterval(interval);
+      activeTimers.delete(userId);
       
-      // 30 seconds complete - Show verify button
+      // Enable verify button
       const verifyButton = [
         [Markup.button.callback('✓ I Have Joined Both', 'verify_now')]
       ];
+      
+      // Update session
+      userSessions.set(userId, {
+        ...session,
+        step: 'ready_to_verify',
+        readyToVerify: true,
+        verified: false
+      });
       
       await ctx.reply(
         `╔══════════════════════════╗\n` +
         `║  VERIFICATION READY   ║\n` +
         `╚══════════════════════════╝\n\n` +
-        `✅ Time is up!\n\n` +
-        `✓ You have joined both channels.\n` +
-        `✓ Click the button below to verify.`,
+        `✅ Timer complete!\n\n` +
+        `✓ You have successfully waited 30 seconds.\n` +
+        `✓ Click the button below to complete verification.`,
         {
           ...Markup.inlineKeyboard(verifyButton)
         }
       );
-      
-      // Update session
-      const current = userSessions.get(userId);
-      if (current) {
-        current.readyToVerify = true;
-        userSessions.set(userId, current);
-      }
     }
-  }, 5000); // Update every 5 seconds
+  }, 1000); // Update every 1 second
 });
 
 // VERIFY NOW - Final verification
@@ -165,7 +197,8 @@ bot.action('verify_now', async (ctx) => {
     verified: true,
     verifiedAt: new Date().toISOString(),
     username: ctx.from.username,
-    firstName: ctx.from.first_name
+    firstName: ctx.from.first_name,
+    step: 'verified'
   });
   
   await ctx.reply(
