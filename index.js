@@ -29,7 +29,7 @@ const activeTimers = new Map();
 
 // ---------- START COMMAND ----------
 bot.command('start', async (ctx) => {
-  const userId = String(ctx.from.id); // ✅ Force string conversion
+  const userId = String(ctx.from.id);
   
   // Check if already verified
   if (userSessions.has(userId) && userSessions.get(userId)?.verified) {
@@ -47,7 +47,7 @@ bot.command('start', async (ctx) => {
     return [Markup.button.url(`▶ ${channel.name}`, channel.link)];
   });
   
-  // ✅ STORE USER SESSION WITH CORRECT ID
+  // Store user session
   userSessions.set(userId, {
     step: 'waiting_for_join',
     started: Date.now(),
@@ -55,8 +55,6 @@ bot.command('start', async (ctx) => {
     timerStarted: false,
     readyToVerify: false
   });
-  
-  console.log(`✅ User session created for: ${userId}`); // Debug log
   
   await ctx.reply(
     `╔══════════════════════════╗\n` +
@@ -77,16 +75,10 @@ bot.command('start', async (ctx) => {
 
 // ---------- HANDLE ALL MESSAGES - AUTO TIMER START ----------
 bot.on('message', async (ctx) => {
-  const userId = String(ctx.from.id); // ✅ Force string conversion
+  const userId = String(ctx.from.id);
   
-  console.log(`📨 Message from: ${userId}`); // Debug log
-  console.log(`📝 Session exists: ${userSessions.has(userId)}`); // Debug log
-  
-  // ✅ CHECK IF USER EXISTS IN SESSION
+  // Check if user exists in session
   if (!userSessions.has(userId)) {
-    // ✅ USER NOT FOUND - CREATE SESSION AUTOMATICALLY
-    console.log(`🆕 Creating new session for: ${userId}`);
-    
     userSessions.set(userId, {
       step: 'waiting_for_join',
       started: Date.now(),
@@ -94,12 +86,7 @@ bot.on('message', async (ctx) => {
       timerStarted: false,
       readyToVerify: false
     });
-    
-    return ctx.reply(
-      `✓ Session created!\n\n` +
-      `Please join both WhatsApp channels first.\n` +
-      `Use /start to see the channels.`
-    );
+    return ctx.reply(`✓ Session created!\n\nPlease use /start to see channels.`);
   }
   
   const session = userSessions.get(userId);
@@ -127,9 +114,7 @@ bot.on('message', async (ctx) => {
     );
   }
   
-  // ⭐ START AUTO TIMER - 30 seconds
-  console.log(`⏳ Starting timer for: ${userId}`); // Debug log
-  
+  // ⭐ START AUTO TIMER - 30 seconds with RECURSIVE TIMEOUT
   let countdown = 30;
   activeTimers.set(userId, countdown);
   
@@ -151,25 +136,16 @@ bot.on('message', async (ctx) => {
     `⏱️ 30 seconds remaining...`
   );
   
-  // Create interval for live countdown
-  const interval = setInterval(async () => {
-    countdown -= 1;
-    activeTimers.set(userId, countdown);
-    
-    if (countdown > 0) {
-      // Send countdown
-      await ctx.reply(`⏱️ ${countdown} seconds remaining...`);
-    } else {
+  // ⭐ RECURSIVE TIMER FUNCTION - This will work on Vercel
+  const startTimer = async (remaining) => {
+    if (remaining <= 0) {
       // Timer complete
-      clearInterval(interval);
       activeTimers.delete(userId);
       
-      // Create verify button
       const verifyButton = [
         [Markup.button.callback('✓ I Have Joined Both', 'verify_now')]
       ];
       
-      // ✅ UPDATE SESSION WITH readyToVerify = true
       userSessions.set(userId, {
         ...session,
         step: 'ready_to_verify',
@@ -188,7 +164,24 @@ bot.on('message', async (ctx) => {
           ...Markup.inlineKeyboard(verifyButton)
         }
       );
+      return;
     }
+    
+    // Update remaining time
+    activeTimers.set(userId, remaining);
+    
+    // Send countdown message
+    await ctx.reply(`⏱️ ${remaining} seconds remaining...`);
+    
+    // Call next iteration after 1 second
+    setTimeout(() => {
+      startTimer(remaining - 1);
+    }, 1000);
+  };
+  
+  // Start the timer
+  setTimeout(() => {
+    startTimer(29); // Start with 29 (30 - 1)
   }, 1000);
 });
 
@@ -198,7 +191,6 @@ bot.action('verify_now', async (ctx) => {
   
   const userId = String(ctx.from.id);
   
-  // ✅ CHECK IF USER EXISTS
   if (!userSessions.has(userId)) {
     return ctx.reply(`✗ Please use /start first.`);
   }
@@ -216,7 +208,7 @@ bot.action('verify_now', async (ctx) => {
     );
   }
   
-  // ✅ Mark as verified
+  // Mark as verified
   userSessions.set(userId, {
     verified: true,
     verifiedAt: new Date().toISOString(),
