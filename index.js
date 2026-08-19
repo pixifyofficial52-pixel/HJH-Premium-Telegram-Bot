@@ -5,7 +5,6 @@ const config = require('./config');
 const bot = require('./bot');
 const { connectDB } = require('./database');
 
-// Initialize express
 const app = express();
 
 // Middleware
@@ -31,43 +30,56 @@ app.get('/health', (req, res) => {
   res.json({
     status: 'healthy',
     timestamp: new Date().toISOString(),
-    uptime: process.uptime()
+    uptime: process.uptime(),
+    environment: process.env.NODE_ENV || 'development'
   });
 });
 
-// Webhook endpoint
+// ⭐ MAIN WEBOOK ENDPOINT - Bot updates yahan aayengi
 app.post('/webhook', (req, res) => {
-  bot.handleUpdate(req.body);
-  res.sendStatus(200);
+  try {
+    bot.handleUpdate(req.body);
+    res.sendStatus(200);
+  } catch (error) {
+    console.error('Webhook error:', error);
+    res.sendStatus(500);
+  }
 });
 
-// Connect to database
+// Connect to database (if MongoDB configured)
 connectDB();
 
-// Start bot
-bot.launch().then(() => {
-  console.log('Bot started successfully');
-}).catch(err => {
-  console.error('Bot failed to start:', err);
+// ⭐ SET WEBHOOK - Bot ko batayein ke updates kahan bhejne hain
+const setWebhook = async () => {
+  try {
+    // Vercel ka live URL automatically detect karein
+    const webhookUrl = process.env.VERCEL_URL 
+      ? `https://${process.env.VERCEL_URL}/webhook`
+      : 'https://hjh-premium-telegram-bot.vercel.app/webhook';
+    
+    await bot.telegram.setWebhook(webhookUrl);
+    console.log(`✅ Webhook set successfully to: ${webhookUrl}`);
+    
+    // Webhook status check
+    const webhookInfo = await bot.telegram.getWebhookInfo();
+    console.log(`📊 Webhook Info:`, webhookInfo);
+    
+  } catch (error) {
+    console.error('❌ Failed to set webhook:', error.message);
+  }
+};
+
+// ⭐ SERVER START
+const PORT = process.env.PORT || 3000;
+
+app.listen(PORT, async () => {
+  console.log(`🚀 Server running on port ${PORT}`);
+  console.log(`🌐 Live URL: https://hjh-premium-telegram-bot.vercel.app`);
+  console.log(`📱 Webhook URL: https://hjh-premium-telegram-bot.vercel.app/webhook`);
+  
+  // Webhook set karein
+  await setWebhook();
 });
 
-// Start server
-const PORT = config.port;
-app.listen(PORT, () => {
-  console.log(`Server running on port ${PORT}`);
-  console.log(`Webhook URL: http://localhost:${PORT}/webhook`);
-  console.log(`Health check: http://localhost:${PORT}/health`);
-});
-
-// Graceful shutdown
-process.once('SIGINT', () => {
-  bot.stop('SIGINT');
-  process.exit(0);
-});
-
-process.once('SIGTERM', () => {
-  bot.stop('SIGTERM');
-  process.exit(0);
-});
-
+// Export for Vercel
 module.exports = app;
