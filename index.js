@@ -18,6 +18,7 @@ const loadData = async () => {
       data = await fs.readJson(DATA_FILE);
       console.log('✅ Data loaded from file');
     } else {
+      // ⭐ DEFAULT CHANNELS - YAHAN SE LE RAHA HAI
       data = {
         users: {},
         customCommands: {},
@@ -29,21 +30,22 @@ const loadData = async () => {
           screenshotReceived: `╔══════════════════════════╗\n║   SCREENSHOT RECEIVED   ║\n╚══════════════════════════╝\n\n✅ Screenshot received successfully!\n\n🔄 Now click "I Have Joined Both" to complete verification.`,
           screenshotRequired: `╔══════════════════════════╗\n║   SCREENSHOT REQUIRED   ║\n╚══════════════════════════╝\n\n❌ You haven't sent a screenshot yet!\n\n📸 Please:\n1. Join both WhatsApp channels\n2. Take a screenshot\n3. Send it here\n4. Then click "I Have Joined Both" again`
         },
+        // ⭐ YAHAN CHANNELS DEFINED HAIN
         whatsappChannels: [
           {
             id: 'channel1',
-            name: process.env.WHATSAPP_CHANNEL_1_NAME || 'HJH Tools Official',
-            link: process.env.WHATSAPP_CHANNEL_1_LINK || '#'
+            name: 'HJH Tools Official',
+            link: 'https://whatsapp.com/channel/0029VaXXXXXXXXX1'
           },
           {
             id: 'channel2',
-            name: process.env.WHATSAPP_CHANNEL_2_NAME || 'SBL Official',
-            link: process.env.WHATSAPP_CHANNEL_2_LINK || '#'
+            name: 'SBL Official',
+            link: 'https://whatsapp.com/channel/0029VaXXXXXXXXX2'
           }
         ]
       };
       await saveData();
-      console.log('✅ Default data created');
+      console.log('✅ Default data created with channels');
     }
   } catch (error) {
     console.error('❌ Error loading data:', error);
@@ -72,7 +74,25 @@ const getTools = () => data.tools || {};
 const setTools = (tools) => { data.tools = tools; saveData(); };
 const getBotSettings = () => data.botSettings || {};
 const setBotSettings = (settings) => { data.botSettings = settings; saveData(); };
-const getWhatsAppChannels = () => data.whatsappChannels || [];
+const getWhatsAppChannels = () => {
+  // ⭐ FORCE RETURN CHANNELS - AGAR KHALI HAIN TOH DEFAULT DAAL DO
+  if (!data.whatsappChannels || data.whatsappChannels.length === 0) {
+    data.whatsappChannels = [
+      {
+        id: 'channel1',
+        name: 'HJH Tools Official',
+        link: 'https://whatsapp.com/channel/0029VaXXXXXXXXX1'
+      },
+      {
+        id: 'channel2',
+        name: 'SBL Official',
+        link: 'https://whatsapp.com/channel/0029VaXXXXXXXXX2'
+      }
+    ];
+    saveData();
+  }
+  return data.whatsappChannels;
+};
 const setWhatsAppChannels = (channels) => { data.whatsappChannels = channels; saveData(); };
 
 // ---------- BOT COMMANDS ----------
@@ -82,31 +102,54 @@ bot.command('start', async (ctx) => {
   const userId = String(ctx.from.id);
   const users = getUserSessions();
   
+  console.log('📢 /start command received from:', userId);
+  
   // If already verified
   if (users[userId]?.verified) {
     return ctx.reply(getBotSettings().welcomeBackMessage);
   }
   
-  // ✅ GET CHANNELS FROM DATA
+  // ⭐ GET CHANNELS
   const channels = getWhatsAppChannels();
-  console.log('📢 Channels loaded:', channels); // Debug log
+  console.log('📢 Channels from data:', JSON.stringify(channels, null, 2));
   
-  // ✅ CREATE BUTTONS - CHANNEL LINKS
+  // ⭐ FORCE CREATE BUTTONS - CHANNEL LINKS
   const buttons = [];
   
-  // Add channel buttons
-  channels.forEach(channel => {
-    if (channel.link && channel.link !== '#') {
-      buttons.push([Markup.button.url(`📱 ${channel.name}`, channel.link)]);
-    } else {
-      buttons.push([Markup.button.callback(`📱 ${channel.name} (Link missing)`, 'no_link')]);
-    }
-  });
+  // Channel 1 button
+  if (channels[0]) {
+    buttons.push([
+      Markup.button.url(
+        `📱 ${channels[0].name || 'Channel 1'}`,
+        channels[0].link || '#'
+      )
+    ]);
+  } else {
+    buttons.push([
+      Markup.button.url('📱 Channel 1', '#')
+    ]);
+  }
+  
+  // Channel 2 button
+  if (channels[1]) {
+    buttons.push([
+      Markup.button.url(
+        `📱 ${channels[1].name || 'Channel 2'}`,
+        channels[1].link || '#'
+      )
+    ]);
+  } else {
+    buttons.push([
+      Markup.button.url('📱 Channel 2', '#')
+    ]);
+  }
   
   // ✅ ADD VERIFY BUTTON
   buttons.push([
     Markup.button.callback('✅ I Have Joined Both', 'check_verify')
   ]);
+  
+  console.log('📢 Buttons created:', buttons.length);
   
   // Store user session
   users[userId] = {
@@ -118,83 +161,18 @@ bot.command('start', async (ctx) => {
   };
   setUserSessions(users);
   
-  // ✅ BUILD MESSAGE WITH CHANNEL NAMES
+  // Build message with channel names
   let msg = getBotSettings().verificationMessage
     .replace(/{name}/g, ctx.from.first_name)
     .replace(/{channel1}/g, channels[0]?.name || 'Channel 1')
     .replace(/{channel2}/g, channels[1]?.name || 'Channel 2');
   
-  // ✅ SEND WITH BUTTONS
+  // ⭐ SEND WITH BUTTONS
   await ctx.reply(msg, {
     ...Markup.inlineKeyboard(buttons)
   });
-});
-
-// NO LINK HANDLER
-bot.action('no_link', async (ctx) => {
-  await ctx.answerCbQuery();
-  await ctx.reply(
-    `⚠️ Channel link is missing!\n\n` +
-    `Please update the channel link in admin panel.\n` +
-    `Go to Settings → Update Channels.`
-  );
-});
-
-// SCREENSHOT HANDLER
-bot.on('photo', async (ctx) => {
-  const userId = String(ctx.from.id);
-  const users = getUserSessions();
   
-  if (!users[userId]) {
-    return ctx.reply(`✗ Please use /start first.`);
-  }
-  
-  if (users[userId].verified) return ctx.reply(`✓ You are already verified!`);
-  
-  users[userId].screenshotSent = true;
-  users[userId].step = 'screenshot_received';
-  setUserSessions(users);
-  
-  await ctx.reply(getBotSettings().screenshotReceived);
-  
-  if (ADMIN_ID) {
-    try {
-      await ctx.forwardMessage(ADMIN_ID);
-      await ctx.telegram.sendMessage(
-        ADMIN_ID,
-        `📸 New screenshot from: ${ctx.from.first_name} (@${ctx.from.username || 'No username'})\nUser ID: ${userId}`
-      );
-    } catch (error) {}
-  }
-});
-
-// DOCUMENT HANDLER
-bot.on('document', async (ctx) => {
-  const userId = String(ctx.from.id);
-  const users = getUserSessions();
-  
-  if (!users[userId]) {
-    return ctx.reply(`✗ Please use /start first.`);
-  }
-  
-  if (users[userId].verified) return ctx.reply(`✓ You are already verified!`);
-  
-  const mimeType = ctx.message.document.mime_type;
-  if (mimeType && mimeType.startsWith('image/')) {
-    users[userId].screenshotSent = true;
-    users[userId].step = 'screenshot_received';
-    setUserSessions(users);
-    
-    await ctx.reply(getBotSettings().screenshotReceived);
-    
-    if (ADMIN_ID) {
-      try {
-        await ctx.forwardMessage(ADMIN_ID);
-      } catch (error) {}
-    }
-  } else {
-    await ctx.reply(`✗ Please send a screenshot (image file).`);
-  }
+  console.log('✅ Reply sent with', buttons.length, 'buttons');
 });
 
 // VERIFY BUTTON
@@ -243,7 +221,64 @@ bot.action('check_verify', async (ctx) => {
   await ctx.reply(commandsList);
 });
 
-// HELP COMMAND
+// ---------- SCREENSHOT HANDLER ----------
+bot.on('photo', async (ctx) => {
+  const userId = String(ctx.from.id);
+  const users = getUserSessions();
+  
+  if (!users[userId]) {
+    return ctx.reply(`✗ Please use /start first.`);
+  }
+  
+  if (users[userId].verified) return ctx.reply(`✓ You are already verified!`);
+  
+  users[userId].screenshotSent = true;
+  users[userId].step = 'screenshot_received';
+  setUserSessions(users);
+  
+  await ctx.reply(getBotSettings().screenshotReceived);
+  
+  if (ADMIN_ID) {
+    try {
+      await ctx.forwardMessage(ADMIN_ID);
+      await ctx.telegram.sendMessage(
+        ADMIN_ID,
+        `📸 New screenshot from: ${ctx.from.first_name} (@${ctx.from.username || 'No username'})\nUser ID: ${userId}`
+      );
+    } catch (error) {}
+  }
+});
+
+// ---------- DOCUMENT HANDLER ----------
+bot.on('document', async (ctx) => {
+  const userId = String(ctx.from.id);
+  const users = getUserSessions();
+  
+  if (!users[userId]) {
+    return ctx.reply(`✗ Please use /start first.`);
+  }
+  
+  if (users[userId].verified) return ctx.reply(`✓ You are already verified!`);
+  
+  const mimeType = ctx.message.document.mime_type;
+  if (mimeType && mimeType.startsWith('image/')) {
+    users[userId].screenshotSent = true;
+    users[userId].step = 'screenshot_received';
+    setUserSessions(users);
+    
+    await ctx.reply(getBotSettings().screenshotReceived);
+    
+    if (ADMIN_ID) {
+      try {
+        await ctx.forwardMessage(ADMIN_ID);
+      } catch (error) {}
+    }
+  } else {
+    await ctx.reply(`✗ Please send a screenshot (image file).`);
+  }
+});
+
+// ---------- HELP COMMAND ----------
 bot.command('help', async (ctx) => {
   const userId = String(ctx.from.id);
   const users = getUserSessions();
@@ -269,7 +304,7 @@ bot.command('help', async (ctx) => {
   await ctx.reply(helpText);
 });
 
-// PREMIUM COMMAND
+// ---------- PREMIUM COMMAND ----------
 bot.command('premium', async (ctx) => {
   const userId = String(ctx.from.id);
   const users = getUserSessions();
@@ -290,7 +325,7 @@ bot.command('premium', async (ctx) => {
   );
 });
 
-// TOOLS COMMAND
+// ---------- TOOLS COMMAND ----------
 bot.command('tools', async (ctx) => {
   const userId = String(ctx.from.id);
   const users = getUserSessions();
@@ -316,7 +351,7 @@ bot.command('tools', async (ctx) => {
   await ctx.reply(toolsText);
 });
 
-// ABOUT COMMAND
+// ---------- ABOUT COMMAND ----------
 bot.command('about', async (ctx) => {
   const userId = String(ctx.from.id);
   const users = getUserSessions();
