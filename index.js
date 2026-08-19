@@ -27,15 +27,12 @@ bot.use(session());
 const userSessions = new Map();
 const activeTimers = new Map();
 
-// ---------- COMMANDS ----------
-
-// START COMMAND
+// ---------- START COMMAND ----------
 bot.command('start', async (ctx) => {
   const userId = ctx.from.id.toString();
-  const session = userSessions.get(userId);
   
-  // If already verified
-  if (session?.verified) {
+  // Check if already verified
+  if (userSessions.has(userId) && userSessions.get(userId)?.verified) {
     return ctx.reply(
       `╔══════════════════════════╗\n` +
       `║   WELCOME BACK   ║\n` +
@@ -50,12 +47,13 @@ bot.command('start', async (ctx) => {
     return [Markup.button.url(`▶ ${channel.name}`, channel.link)];
   });
   
-  // Store user session
+  // ✅ STORE USER SESSION IMMEDIATELY
   userSessions.set(userId, {
     step: 'waiting_for_join',
     started: Date.now(),
     verified: false,
-    timerStarted: false
+    timerStarted: false,
+    readyToVerify: false
   });
   
   await ctx.reply(
@@ -68,7 +66,7 @@ bot.command('start', async (ctx) => {
     `▶ ${WHATSAPP_CHANNELS[1].name}\n\n` +
     `⏳ Timer will start automatically after joining.\n` +
     `📌 30 seconds countdown will begin...\n\n` +
-    `💡 Send any message after joining to start timer.`,
+    `💬 Send any message after joining to start timer.`,
     {
       ...Markup.inlineKeyboard(buttons)
     }
@@ -76,26 +74,26 @@ bot.command('start', async (ctx) => {
 });
 
 // ---------- HANDLE ALL MESSAGES - AUTO TIMER START ----------
-bot.on('text', async (ctx) => {
+bot.on('message', async (ctx) => {
   const userId = ctx.from.id.toString();
+  
+  // ✅ CHECK IF USER EXISTS IN SESSION
+  if (!userSessions.has(userId)) {
+    // If no session, redirect to start
+    return ctx.reply(
+      `✗ Please use /start first.\n\n` +
+      `Click /start to begin verification.`
+    );
+  }
+  
   const session = userSessions.get(userId);
-  const text = ctx.message.text;
   
   // If user is verified
-  if (session?.verified) {
-    return ctx.reply(
-      `I received: ${text}\n\nUse /help for commands.`
-    );
+  if (session.verified) {
+    return;
   }
   
-  // If user hasn't started verification
-  if (!session) {
-    return ctx.reply(
-      `✗ Please use /start first.`
-    );
-  }
-  
-  // Check if already verified in session
+  // If already ready to verify
   if (session.readyToVerify) {
     return ctx.reply(
       `✓ You are ready to verify!\n` +
@@ -121,8 +119,7 @@ bot.on('text', async (ctx) => {
   userSessions.set(userId, {
     ...session,
     step: 'timer_running',
-    timerStarted: Date.now(),
-    timerStarted: true
+    timerStarted: Date.now()
   });
   
   // Send initial timer message
@@ -136,27 +133,25 @@ bot.on('text', async (ctx) => {
     `⏱️ 30 seconds remaining...`
   );
   
-  // Create interval for live countdown - UPDATES EVERY 1 SECOND
+  // Create interval for live countdown
   const interval = setInterval(async () => {
     countdown -= 1;
     activeTimers.set(userId, countdown);
     
     if (countdown > 0) {
-      // Update every second
-      await ctx.reply(
-        `⏱️ ${countdown} seconds remaining...`
-      );
+      // Send countdown
+      await ctx.reply(`⏱️ ${countdown} seconds remaining...`);
     } else {
-      // Timer complete - 30 seconds done
+      // Timer complete
       clearInterval(interval);
       activeTimers.delete(userId);
       
-      // Enable verify button
+      // Create verify button
       const verifyButton = [
         [Markup.button.callback('✓ I Have Joined Both', 'verify_now')]
       ];
       
-      // Update session
+      // ✅ UPDATE SESSION WITH readyToVerify = true
       userSessions.set(userId, {
         ...session,
         step: 'ready_to_verify',
@@ -176,34 +171,41 @@ bot.on('text', async (ctx) => {
         }
       );
     }
-  }, 1000); // Update every 1 second
+  }, 1000);
 });
 
-// VERIFY NOW - Final verification
+// ---------- VERIFY NOW ----------
 bot.action('verify_now', async (ctx) => {
   await ctx.answerCbQuery();
   
   const userId = ctx.from.id.toString();
+  
+  // ✅ CHECK IF USER EXISTS
+  if (!userSessions.has(userId)) {
+    return ctx.reply(`✗ Please use /start first.`);
+  }
+  
   const session = userSessions.get(userId);
   
-  if (session?.verified) {
+  if (session.verified) {
     return ctx.reply(`✓ You are already verified!`);
   }
   
-  if (!session?.readyToVerify) {
+  if (!session.readyToVerify) {
     return ctx.reply(
       `✗ Please wait 30 seconds after joining channels.\n` +
       `Use /start to try again.`
     );
   }
   
-  // Mark as verified
+  // ✅ Mark as verified
   userSessions.set(userId, {
     verified: true,
     verifiedAt: new Date().toISOString(),
     username: ctx.from.username,
     firstName: ctx.from.first_name,
-    step: 'verified'
+    step: 'verified',
+    readyToVerify: false
   });
   
   await ctx.reply(
@@ -214,7 +216,7 @@ bot.action('verify_now', async (ctx) => {
     `Use /help to see available commands.`
   );
   
-  // Send command list immediately
+  // Send command list
   await ctx.reply(
     `╔══════════════════════════╗\n` +
     `║    COMMANDS   ║\n` +
@@ -228,12 +230,11 @@ bot.action('verify_now', async (ctx) => {
   );
 });
 
-// HELP COMMAND
+// ---------- HELP COMMAND ----------
 bot.command('help', async (ctx) => {
   const userId = ctx.from.id.toString();
-  const session = userSessions.get(userId);
   
-  if (!session?.verified) {
+  if (!userSessions.has(userId) || !userSessions.get(userId)?.verified) {
     return ctx.reply(`✗ Please use /start and verify first.`);
   }
   
@@ -251,12 +252,11 @@ bot.command('help', async (ctx) => {
   );
 });
 
-// PREMIUM COMMAND
+// ---------- PREMIUM COMMAND ----------
 bot.command('premium', async (ctx) => {
   const userId = ctx.from.id.toString();
-  const session = userSessions.get(userId);
   
-  if (!session?.verified) {
+  if (!userSessions.has(userId) || !userSessions.get(userId)?.verified) {
     return ctx.reply(`✗ Please verify first.`);
   }
   
@@ -272,12 +272,11 @@ bot.command('premium', async (ctx) => {
   );
 });
 
-// TOOLS COMMAND
+// ---------- TOOLS COMMAND ----------
 bot.command('tools', async (ctx) => {
   const userId = ctx.from.id.toString();
-  const session = userSessions.get(userId);
   
-  if (!session?.verified) {
+  if (!userSessions.has(userId) || !userSessions.get(userId)?.verified) {
     return ctx.reply(`✗ Please verify first.`);
   }
   
@@ -292,12 +291,11 @@ bot.command('tools', async (ctx) => {
   );
 });
 
-// ABOUT COMMAND
+// ---------- ABOUT COMMAND ----------
 bot.command('about', async (ctx) => {
   const userId = ctx.from.id.toString();
-  const session = userSessions.get(userId);
   
-  if (!session?.verified) {
+  if (!userSessions.has(userId) || !userSessions.get(userId)?.verified) {
     return ctx.reply(`✗ Please verify first.`);
   }
   
@@ -315,7 +313,7 @@ bot.command('about', async (ctx) => {
   );
 });
 
-// ADMIN COMMAND
+// ---------- ADMIN COMMAND ----------
 bot.command('admin', async (ctx) => {
   const userId = ctx.from.id.toString();
   
@@ -336,7 +334,7 @@ bot.command('admin', async (ctx) => {
   );
 });
 
-// ERROR HANDLER
+// ---------- ERROR HANDLER ----------
 bot.catch((err, ctx) => {
   console.error('Bot error:', err);
   if (ctx) ctx.reply('⚠️ Error occurred. Please try again.');
