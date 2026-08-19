@@ -6,7 +6,6 @@ require('dotenv').config();
 const BOT_TOKEN = process.env.BOT_TOKEN;
 const ADMIN_ID = process.env.ADMIN_ID;
 
-// WhatsApp Channels from .env
 const WHATSAPP_CHANNELS = [
   {
     id: 'channel1',
@@ -24,16 +23,13 @@ const WHATSAPP_CHANNELS = [
 const bot = new Telegraf(BOT_TOKEN);
 bot.use(session());
 
-// Store verified users (in-memory)
+// Store verification codes (in-memory)
+const verificationCodes = new Map();
 const verifiedUsers = new Map();
 
-// ---------- CHECK WHATSAPP JOIN (SIMULATED) ----------
-// Note: WhatsApp API doesn't provide direct channel join check
-// This is a manual verification system
-const checkWhatsAppJoin = (userId) => {
-  // In production, you'd check via WhatsApp Business API
-  // For now, we use session-based verification
-  return false; // Always false until user manually confirms
+// ---------- GENERATE RANDOM CODE ----------
+const generateCode = () => {
+  return Math.floor(100000 + Math.random() * 900000).toString();
 };
 
 // ---------- COMMANDS ----------
@@ -43,67 +39,154 @@ bot.command('start', async (ctx) => {
   const userId = ctx.from.id.toString();
   const userData = verifiedUsers.get(userId);
   
-  // If already verified
   if (userData?.verified) {
     return ctx.reply(
       `╔══════════════════════════╗\n` +
       `║   WELCOME BACK   ║\n` +
       `╚══════════════════════════╝\n\n` +
       `✓ You are already verified.\n` +
-      `Use /help for commands.`,
-      { parse_mode: 'Markdown' }
+      `Use /help for commands.`
     );
   }
   
-  // Create channel buttons
+  // Check if verification in progress
+  if (verificationCodes.has(userId)) {
+    return ctx.reply(
+      `╔══════════════════════════╗\n` +
+      `║  VERIFICATION IN PROGRESS ║\n` +
+      `╚══════════════════════════╝\n\n` +
+      `Please check your WhatsApp for the verification code.\n` +
+      `Send the 6-digit code here to complete verification.`
+    );
+  }
+  
+  // Channel buttons
   const buttons = WHATSAPP_CHANNELS.map(channel => {
-    return [Markup.button.url(
-      `▶ ${channel.name}`,
-      channel.link
-    )];
+    return [Markup.button.url(`▶ ${channel.name}`, channel.link)];
   });
   
-  // Add verify button
   buttons.push([
-    Markup.button.callback('✓ I Have Joined Both', 'verify')
+    Markup.button.callback('✓ I Have Joined Both', 'request_code')
   ]);
   
   await ctx.reply(
     `╔══════════════════════════╗\n` +
-    `║   ACCESS DENIED   ║\n` +
+    `║   VERIFICATION REQUIRED  ║\n` +
     `╚══════════════════════════╝\n\n` +
     `Hello ${ctx.from.first_name},\n\n` +
     `Please join BOTH WhatsApp channels:\n\n` +
     `▶ Join both channels\n` +
-    `▶ Then click "I Have Joined Both"`,
+    `▶ Click "I Have Joined Both"\n` +
+    `▶ Enter the verification code sent to your WhatsApp`,
     {
-      parse_mode: 'Markdown',
       ...Markup.inlineKeyboard(buttons)
     }
   );
 });
 
-// VERIFY CALLBACK
-bot.action('verify', async (ctx) => {
+// REQUEST CODE - User ne join kar liya
+bot.action('request_code', async (ctx) => {
   await ctx.answerCbQuery();
   
   const userId = ctx.from.id.toString();
+  const code = generateCode();
   
-  // Mark as verified
-  verifiedUsers.set(userId, {
-    verified: true,
-    verifiedAt: new Date().toISOString(),
-    username: ctx.from.username,
-    firstName: ctx.from.first_name
+  // Store code with expiry (5 minutes)
+  verificationCodes.set(userId, {
+    code: code,
+    expires: Date.now() + 300000, // 5 minutes
+    attempts: 0
   });
   
+  // In production, send actual WhatsApp message via API
+  // For now, show code in chat (demo)
   await ctx.reply(
     `╔══════════════════════════╗\n` +
-    `║  VERIFICATION SUCCESSFUL ║\n` +
+    `║  VERIFICATION CODE SENT  ║\n` +
     `╚══════════════════════════╝\n\n` +
-    `✓ All commands are now unlocked!\n\n` +
-    `Use /help to see available commands.`,
-    { parse_mode: 'Markdown' }
+    `✓ A 6-digit code has been sent to your WhatsApp.\n\n` +
+    `📱 Code: ${code}\n\n` +
+    `⚠️ This code expires in 5 minutes.\n` +
+    `Send this code here to complete verification.`
+  );
+  
+  // In production, send via WhatsApp API:
+  // await sendWhatsAppMessage(userPhone, `Your verification code: ${code}`);
+});
+
+// HANDLE CODE INPUT
+bot.on('text', async (ctx) => {
+  const userId = ctx.from.id.toString();
+  const text = ctx.message.text.trim();
+  
+  // Check if this is a verification code (6 digits)
+  if (/^\d{6}$/.test(text)) {
+    const pending = verificationCodes.get(userId);
+    
+    if (!pending) {
+      return ctx.reply(
+        `✗ No verification in progress.\n\nUse /start to begin.`
+      );
+    }
+    
+    // Check expiry
+    if (Date.now() > pending.expires) {
+      verificationCodes.delete(userId);
+      return ctx.reply(
+        `✗ Code expired.\n\nUse /start to try again.`
+      );
+    }
+    
+    // Check attempts
+    if (pending.attempts >= 3) {
+      verificationCodes.delete(userId);
+      return ctx.reply(
+        `✗ Too many failed attempts.\n\nUse /start to try again.`
+      );
+    }
+    
+    // Verify code
+    if (text === pending.code) {
+      // Success!
+      verifiedUsers.set(userId, {
+        verified: true,
+        verifiedAt: new Date().toISOString(),
+        username: ctx.from.username,
+        firstName: ctx.from.first_name
+      });
+      
+      verificationCodes.delete(userId);
+      
+      return ctx.reply(
+        `╔══════════════════════════╗\n` +
+        `║  VERIFICATION SUCCESSFUL ║\n` +
+        `╚══════════════════════════╝\n\n` +
+        `✓ All commands are now unlocked!\n\n` +
+        `Use /help to see available commands.`
+      );
+    } else {
+      // Wrong code
+      pending.attempts += 1;
+      const remaining = 3 - pending.attempts;
+      
+      return ctx.reply(
+        `✗ Invalid code.\n\n` +
+        `Attempts remaining: ${remaining}\n\n` +
+        `Please try again.`
+      );
+    }
+  }
+  
+  // Regular message handling
+  const userData = verifiedUsers.get(userId);
+  if (!userData?.verified) {
+    return ctx.reply(
+      `✗ Please use /start and verify first.`
+    );
+  }
+  
+  await ctx.reply(
+    `I received: ${text}\n\nUse /help for commands.`
   );
 });
 
@@ -113,10 +196,7 @@ bot.command('help', async (ctx) => {
   const userData = verifiedUsers.get(userId);
   
   if (!userData?.verified) {
-    return ctx.reply(
-      `✗ Access Denied\n\nPlease use /start and verify first.`,
-      { parse_mode: 'Markdown' }
-    );
+    return ctx.reply(`✗ Please use /start and verify first.`);
   }
   
   await ctx.reply(
@@ -129,8 +209,7 @@ bot.command('help', async (ctx) => {
     `▶ /tools - Available tools\n` +
     `▶ /about - About this bot\n` +
     `▶ /admin - Admin panel (admin only)\n\n` +
-    `◆ All commands are unlocked.`,
-    { parse_mode: 'Markdown' }
+    `◆ All commands are unlocked.`
   );
 });
 
@@ -140,7 +219,7 @@ bot.command('premium', async (ctx) => {
   const userData = verifiedUsers.get(userId);
   
   if (!userData?.verified) {
-    return ctx.reply(`✗ Please verify first.`, { parse_mode: 'Markdown' });
+    return ctx.reply(`✗ Please verify first.`);
   }
   
   await ctx.reply(
@@ -151,8 +230,7 @@ bot.command('premium', async (ctx) => {
     `● Priority Support\n` +
     `● Early Access\n` +
     `● Special Offers\n\n` +
-    `Contact admin for more information.`,
-    { parse_mode: 'Markdown' }
+    `Contact admin for more information.`
   );
 });
 
@@ -162,7 +240,7 @@ bot.command('tools', async (ctx) => {
   const userData = verifiedUsers.get(userId);
   
   if (!userData?.verified) {
-    return ctx.reply(`✗ Please verify first.`, { parse_mode: 'Markdown' });
+    return ctx.reply(`✗ Please verify first.`);
   }
   
   await ctx.reply(
@@ -172,8 +250,7 @@ bot.command('tools', async (ctx) => {
     `◆ Tool 1 - Description\n` +
     `◆ Tool 2 - Description\n` +
     `◆ Tool 3 - Description\n\n` +
-    `More tools coming soon.`,
-    { parse_mode: 'Markdown' }
+    `More tools coming soon.`
   );
 });
 
@@ -183,7 +260,7 @@ bot.command('about', async (ctx) => {
   const userData = verifiedUsers.get(userId);
   
   if (!userData?.verified) {
-    return ctx.reply(`✗ Please verify first.`, { parse_mode: 'Markdown' });
+    return ctx.reply(`✗ Please verify first.`);
   }
   
   await ctx.reply(
@@ -196,17 +273,16 @@ bot.command('about', async (ctx) => {
     `● WhatsApp Force Join\n` +
     `● Premium Content\n` +
     `● Tools Management\n\n` +
-    `Made with Love`,
-    { parse_mode: 'Markdown' }
+    `Made with Love`
   );
 });
 
-// ADMIN COMMAND (Hidden)
+// ADMIN COMMAND
 bot.command('admin', async (ctx) => {
   const userId = ctx.from.id.toString();
   
   if (userId !== ADMIN_ID) {
-    return ctx.reply(`✗ Unknown command.`, { parse_mode: 'Markdown' });
+    return ctx.reply(`✗ Unknown command.`);
   }
   
   const totalUsers = verifiedUsers.size;
@@ -218,23 +294,7 @@ bot.command('admin', async (ctx) => {
     `╚══════════════════════════╝\n\n` +
     `Total Users: ${totalUsers}\n` +
     `Verified: ${verifiedCount}\n\n` +
-    `◆ Admin commands coming soon.`,
-    { parse_mode: 'Markdown' }
-  );
-});
-
-// CATCH ALL
-bot.on('text', async (ctx) => {
-  const userId = ctx.from.id.toString();
-  const userData = verifiedUsers.get(userId);
-  
-  if (!userData?.verified) {
-    return ctx.reply(`✗ Please use /start and verify first.`, { parse_mode: 'Markdown' });
-  }
-  
-  await ctx.reply(
-    `I received: ${ctx.message.text}\n\nUse /help for commands.`,
-    { parse_mode: 'Markdown' }
+    `◆ Admin commands coming soon.`
   );
 });
 
@@ -249,11 +309,11 @@ const app = express();
 app.use(express.json());
 
 app.get('/', (req, res) => {
-  res.json({ status: 'running', version: '2.0', webhook: '/webhook', health: '/health' });
+  res.json({ status: 'running', version: '2.0' });
 });
 
 app.get('/health', (req, res) => {
-  res.json({ status: 'healthy', timestamp: new Date().toISOString(), users: verifiedUsers.size });
+  res.json({ status: 'healthy', timestamp: new Date().toISOString() });
 });
 
 app.post('/webhook', async (req, res) => {
