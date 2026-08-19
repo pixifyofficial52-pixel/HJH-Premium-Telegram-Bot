@@ -8,7 +8,7 @@ const BOT_TOKEN = process.env.BOT_TOKEN;
 const ADMIN_ID = process.env.ADMIN_ID;
 
 // WhatsApp Channels from .env
-const WHATSAPP_CHANNELS = [
+let WHATSAPP_CHANNELS = [
   {
     id: 'channel1',
     name: process.env.WHATSAPP_CHANNEL_1_NAME || 'Channel 1',
@@ -29,7 +29,10 @@ bot.use(session());
 const userSessions = new Map();
 const customCommands = new Map();
 const tools = new Map();
-const botSettings = {
+const pendingBroadcasts = new Map();
+
+// Default bot settings
+let botSettings = {
   verificationMessage: `╔══════════════════════════╗\n║   VERIFICATION REQUIRED  ║\n╚══════════════════════════╝\n\nHello {name},\n\n⚠️ Please join BOTH WhatsApp channels:\n\n▶ {channel1}\n▶ {channel2}\n\n📸 After joining, send a SCREENSHOT of both channels.\n✅ Then click "I Have Joined Both" to verify.`,
   verifiedMessage: `╔══════════════════════════╗\n║  VERIFICATION SUCCESSFUL ║\n╚══════════════════════════╝\n\n✅ All commands are now unlocked!\n\nUse /help to see available commands.`,
   welcomeBackMessage: `╔══════════════════════════╗\n║   WELCOME BACK   ║\n╚══════════════════════════╝\n\n✓ You are already verified.\nUse /help for commands.`,
@@ -104,6 +107,37 @@ bot.on('photo', async (ctx) => {
   }
 });
 
+// DOCUMENT HANDLER (for screenshots sent as files)
+bot.on('document', async (ctx) => {
+  const userId = String(ctx.from.id);
+  
+  if (!userSessions.has(userId)) {
+    return ctx.reply(`✗ Please use /start first.`);
+  }
+  
+  const session = userSessions.get(userId);
+  if (session.verified) return ctx.reply(`✓ You are already verified!`);
+  
+  const mimeType = ctx.message.document.mime_type;
+  if (mimeType && mimeType.startsWith('image/')) {
+    userSessions.set(userId, {
+      ...session,
+      screenshotSent: true,
+      step: 'screenshot_received'
+    });
+    
+    await ctx.reply(botSettings.screenshotReceived);
+    
+    if (ADMIN_ID) {
+      try {
+        await ctx.forwardMessage(ADMIN_ID);
+      } catch (error) {}
+    }
+  } else {
+    await ctx.reply(`✗ Please send a screenshot (image file).`);
+  }
+});
+
 // VERIFY BUTTON
 bot.action('check_verify', async (ctx) => {
   await ctx.answerCbQuery();
@@ -140,7 +174,6 @@ bot.action('check_verify', async (ctx) => {
   commandsList += `▶ /tools - Available tools\n`;
   commandsList += `▶ /about - About this bot\n`;
   
-  // Add custom commands
   for (const [cmd, response] of customCommands) {
     commandsList += `▶ /${cmd} - ${response.split('\n')[0]}\n`;
   }
@@ -206,7 +239,7 @@ bot.command('tools', async (ctx) => {
   if (tools.size === 0) {
     toolsText += `No tools available. Contact admin to add tools.`;
   } else {
-    for (const [name, tool] of tools) {
+    for (const [id, tool] of tools) {
       toolsText += `◆ ${tool.name}\n`;
       toolsText += `   ${tool.description}\n`;
       if (tool.link) toolsText += `   🔗 ${tool.link}\n`;
@@ -241,7 +274,32 @@ bot.command('about', async (ctx) => {
   );
 });
 
-// ---------- ADMIN PANEL COMMANDS ----------
+// ---------- CUSTOM COMMANDS HANDLER ----------
+bot.use(async (ctx, next) => {
+  if (!ctx.message || !ctx.message.text) return next();
+  
+  const text = ctx.message.text;
+  if (!text.startsWith('/')) return next();
+  
+  const command = text.slice(1).split(' ')[0].toLowerCase();
+  
+  // Check if it's a custom command
+  if (customCommands.has(command)) {
+    const userId = String(ctx.from.id);
+    const session = userSessions.get(userId);
+    
+    if (!session?.verified) {
+      return ctx.reply(`✗ Please use /start and verify first.`);
+    }
+    
+    const response = customCommands.get(command);
+    return ctx.reply(response);
+  }
+  
+  return next();
+});
+
+// ---------- ADMIN COMMAND ----------
 bot.command('admin', async (ctx) => {
   const userId = String(ctx.from.id);
   
@@ -285,7 +343,7 @@ const authAdmin = (req, res, next) => {
   next();
 };
 
-// Get Stats
+// GET STATS
 app.get('/api/admin/stats', authAdmin, (req, res) => {
   const totalUsers = userSessions.size;
   const verifiedCount = Array.from(userSessions.values()).filter(u => u.verified).length;
@@ -301,7 +359,7 @@ app.get('/api/admin/stats', authAdmin, (req, res) => {
   });
 });
 
-// Get Users
+// GET USERS
 app.get('/api/admin/users', authAdmin, (req, res) => {
   const users = [];
   for (const [id, data] of userSessions) {
@@ -313,7 +371,7 @@ app.get('/api/admin/users', authAdmin, (req, res) => {
   res.json(users);
 });
 
-// Get Commands
+// GET COMMANDS
 app.get('/api/admin/commands', authAdmin, (req, res) => {
   const commands = [];
   for (const [cmd, response] of customCommands) {
@@ -322,7 +380,7 @@ app.get('/api/admin/commands', authAdmin, (req, res) => {
   res.json(commands);
 });
 
-// Add Command
+// ADD COMMAND
 app.post('/api/admin/commands', authAdmin, (req, res) => {
   const { command, response } = req.body;
   
@@ -338,20 +396,7 @@ app.post('/api/admin/commands', authAdmin, (req, res) => {
   res.json({ success: true, command, response });
 });
 
-// Update Command
-app.put('/api/admin/commands/:command', authAdmin, (req, res) => {
-  const { command } = req.params;
-  const { response } = req.body;
-  
-  if (!customCommands.has(command)) {
-    return res.status(404).json({ error: 'Command not found' });
-  }
-  
-  customCommands.set(command, response);
-  res.json({ success: true, command, response });
-});
-
-// Delete Command
+// DELETE COMMAND
 app.delete('/api/admin/commands/:command', authAdmin, (req, res) => {
   const { command } = req.params;
   
@@ -363,7 +408,7 @@ app.delete('/api/admin/commands/:command', authAdmin, (req, res) => {
   res.json({ success: true });
 });
 
-// Get Tools
+// GET TOOLS
 app.get('/api/admin/tools', authAdmin, (req, res) => {
   const toolsList = [];
   for (const [id, tool] of tools) {
@@ -372,7 +417,7 @@ app.get('/api/admin/tools', authAdmin, (req, res) => {
   res.json(toolsList);
 });
 
-// Add Tool
+// ADD TOOL
 app.post('/api/admin/tools', authAdmin, (req, res) => {
   const { name, description, link } = req.body;
   
@@ -385,20 +430,7 @@ app.post('/api/admin/tools', authAdmin, (req, res) => {
   res.json({ success: true, id, name, description, link });
 });
 
-// Update Tool
-app.put('/api/admin/tools/:id', authAdmin, (req, res) => {
-  const { id } = req.params;
-  const { name, description, link } = req.body;
-  
-  if (!tools.has(id)) {
-    return res.status(404).json({ error: 'Tool not found' });
-  }
-  
-  tools.set(id, { name, description, link: link || '' });
-  res.json({ success: true });
-});
-
-// Delete Tool
+// DELETE TOOL
 app.delete('/api/admin/tools/:id', authAdmin, (req, res) => {
   const { id } = req.params;
   
@@ -410,7 +442,7 @@ app.delete('/api/admin/tools/:id', authAdmin, (req, res) => {
   res.json({ success: true });
 });
 
-// Broadcast
+// BROADCAST
 app.post('/api/admin/broadcast', authAdmin, async (req, res) => {
   const { message } = req.body;
   
@@ -420,19 +452,22 @@ app.post('/api/admin/broadcast', authAdmin, async (req, res) => {
   
   const users = Array.from(userSessions.keys());
   let sent = 0;
+  let failed = 0;
   
   for (const userId of users) {
     try {
       await bot.telegram.sendMessage(userId, message, { parse_mode: 'Markdown' });
       sent++;
       await new Promise(resolve => setTimeout(resolve, 50));
-    } catch (error) {}
+    } catch (error) {
+      failed++;
+    }
   }
   
-  res.json({ success: true, sent, total: users.length });
+  res.json({ success: true, sent, failed, total: users.length });
 });
 
-// Get Settings
+// GET SETTINGS
 app.get('/api/admin/settings', authAdmin, (req, res) => {
   res.json({
     settings: botSettings,
@@ -440,7 +475,7 @@ app.get('/api/admin/settings', authAdmin, (req, res) => {
   });
 });
 
-// Update Settings
+// UPDATE SETTINGS
 app.put('/api/admin/settings', authAdmin, (req, res) => {
   const { settings, channels } = req.body;
   
@@ -448,12 +483,11 @@ app.put('/api/admin/settings', authAdmin, (req, res) => {
     Object.assign(botSettings, settings);
   }
   
-  if (channels) {
-    // Update channels (in production, update .env)
+  if (channels && Array.isArray(channels)) {
     channels.forEach((ch, i) => {
       if (WHATSAPP_CHANNELS[i]) {
-        WHATSAPP_CHANNELS[i].name = ch.name || WHATSAPP_CHANNELS[i].name;
-        WHATSAPP_CHANNELS[i].link = ch.link || WHATSAPP_CHANNELS[i].link;
+        if (ch.name) WHATSAPP_CHANNELS[i].name = ch.name;
+        if (ch.link) WHATSAPP_CHANNELS[i].link = ch.link;
       }
     });
   }
@@ -461,7 +495,7 @@ app.put('/api/admin/settings', authAdmin, (req, res) => {
   res.json({ success: true });
 });
 
-// Verify/Unverify User
+// VERIFY/UNVERIFY USER
 app.post('/api/admin/users/:userId/verify', authAdmin, (req, res) => {
   const { userId } = req.params;
   const { verified } = req.body;
