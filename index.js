@@ -1,83 +1,109 @@
 const express = require('express');
 const cors = require('cors');
 const helmet = require('helmet');
-const config = require('./config');
-const bot = require('./bot');
-const { connectDB } = require('./database');
+const { Telegraf, session } = require('telegraf');
+require('dotenv').config();
 
+// ---------- CONFIG ----------
+const BOT_TOKEN = process.env.BOT_TOKEN;
+const ADMIN_ID = process.env.ADMIN_ID;
+
+// ---------- BOT INIT ----------
+const bot = new Telegraf(BOT_TOKEN);
+bot.use(session());
+
+// ---------- DEBUG MIDDLEWARE ----------
+bot.use(async (ctx, next) => {
+  console.log('📨 Update:', ctx.updateType);
+  console.log('👤 From:', ctx.from?.id);
+  console.log('📝 Text:', ctx.message?.text);
+  await next();
+});
+
+// ---------- COMMANDS ----------
+bot.command('start', async (ctx) => {
+  console.log('✅ Start command received');
+  await ctx.reply('🤖 Bot is working! Use /help for commands.');
+});
+
+bot.command('help', async (ctx) => {
+  await ctx.reply('📖 Help menu - commands coming soon.');
+});
+
+bot.on('text', async (ctx) => {
+  await ctx.reply('I received: ' + ctx.message.text);
+});
+
+bot.catch((err, ctx) => {
+  console.error('❌ Bot error:', err);
+  if (ctx) ctx.reply('⚠️ Error occurred.');
+});
+
+// ---------- EXPRESS APP ----------
 const app = express();
 
-// Middleware
 app.use(helmet());
 app.use(cors());
 app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
 
-// Health check route
+// Log all requests
+app.use((req, res, next) => {
+  console.log(`${req.method} ${req.path}`);
+  next();
+});
+
+// Routes
 app.get('/', (req, res) => {
   res.json({
     name: 'HJH Premium Bot',
-    version: '1.0.0',
     status: 'running',
-    endpoints: {
-      webhook: '/webhook',
-      health: '/health'
-    }
+    webhook: '/webhook',
+    health: '/health'
   });
 });
 
 app.get('/health', (req, res) => {
-  res.json({
-    status: 'healthy',
+  res.json({ 
+    status: 'healthy', 
     timestamp: new Date().toISOString(),
-    uptime: process.uptime(),
-    environment: process.env.NODE_ENV || 'development'
+    uptime: process.uptime()
   });
 });
 
-// ⭐ MAIN WEBOOK ENDPOINT - Bot updates yahan aayengi
-app.post('/webhook', (req, res) => {
+// ⭐ MAIN WEBHOOK ENDPOINT - YEH IMPORTANT HAI
+app.post('/webhook', async (req, res) => {
+  console.log('📨 Webhook POST received');
   try {
-    bot.handleUpdate(req.body);
+    await bot.handleUpdate(req.body);
     res.sendStatus(200);
   } catch (error) {
-    console.error('Webhook error:', error);
+    console.error('❌ Webhook error:', error);
     res.sendStatus(500);
   }
 });
 
-// Connect to database (if MongoDB configured)
-connectDB();
-
-// ⭐ SET WEBHOOK - Bot ko batayein ke updates kahan bhejne hain
+// ---------- WEBHOOK SET ----------
 const setWebhook = async () => {
   try {
-    // Vercel ka live URL automatically detect karein
-    const webhookUrl = process.env.VERCEL_URL 
-      ? `https://${process.env.VERCEL_URL}/webhook`
-      : 'https://hjh-premium-telegram-bot.vercel.app/webhook';
+    const url = 'https://hjh-premium-telegram-bot.vercel.app/webhook';
+    await bot.telegram.setWebhook(url);
+    console.log('✅ Webhook set to:', url);
     
-    await bot.telegram.setWebhook(webhookUrl);
-    console.log(`✅ Webhook set successfully to: ${webhookUrl}`);
-    
-    // Webhook status check
-    const webhookInfo = await bot.telegram.getWebhookInfo();
-    console.log(`📊 Webhook Info:`, webhookInfo);
-    
+    const info = await bot.telegram.getWebhookInfo();
+    console.log('📊 Webhook info:', JSON.stringify(info, null, 2));
   } catch (error) {
-    console.error('❌ Failed to set webhook:', error.message);
+    console.error('❌ Webhook set failed:', error.message);
   }
 };
 
-// ⭐ SERVER START
+// ---------- START ----------
 const PORT = process.env.PORT || 3000;
 
 app.listen(PORT, async () => {
   console.log(`🚀 Server running on port ${PORT}`);
-  console.log(`🌐 Live URL: https://hjh-premium-telegram-bot.vercel.app`);
-  console.log(`📱 Webhook URL: https://hjh-premium-telegram-bot.vercel.app/webhook`);
+  console.log(`🌐 URL: https://hjh-premium-telegram-bot.vercel.app`);
   
-  // Webhook set karein
+  // Webhook set
   await setWebhook();
 });
 
