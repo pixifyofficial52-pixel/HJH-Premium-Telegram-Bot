@@ -25,179 +25,218 @@ bot.use(session());
 
 // Store user sessions
 const userSessions = new Map();
-const activeTimers = new Map();
 
 // ---------- START COMMAND ----------
 bot.command('start', async (ctx) => {
   const userId = String(ctx.from.id);
   
+  // Check if already verified
   if (userSessions.has(userId) && userSessions.get(userId)?.verified) {
     return ctx.reply(
-      `✅ You are already verified.\nUse /help for commands.`
+      `╔══════════════════════════╗\n` +
+      `║   WELCOME BACK   ║\n` +
+      `╚══════════════════════════╝\n\n` +
+      `✓ You are already verified.\n` +
+      `Use /help for commands.`
     );
   }
   
+  // ONLY 2 CHANNEL BUTTONS
   const buttons = WHATSAPP_CHANNELS.map(channel => {
     return [Markup.button.url(`▶ ${channel.name}`, channel.link)];
   });
   
+  // Add "I Have Joined Both" button
+  buttons.push([
+    Markup.button.callback('✓ I Have Joined Both', 'check_verify')
+  ]);
+  
+  // Store user session
   userSessions.set(userId, {
     step: 'waiting_for_join',
     started: Date.now(),
     verified: false,
-    timerStarted: false,
+    screenshotSent: false,
     readyToVerify: false
   });
   
-  console.log(`✅ User session created for: ${userId}`);
-  
   await ctx.reply(
-    `🔐 *VERIFICATION REQUIRED*\n\n` +
+    `╔══════════════════════════╗\n` +
+    `║   VERIFICATION REQUIRED  ║\n` +
+    `╚══════════════════════════╝\n\n` +
     `Hello ${ctx.from.first_name},\n\n` +
-    `⚠️ Please join BOTH WhatsApp channels:\n` +
+    `⚠️ Please join BOTH WhatsApp channels:\n\n` +
     `▶ ${WHATSAPP_CHANNELS[0].name}\n` +
     `▶ ${WHATSAPP_CHANNELS[1].name}\n\n` +
-    `⏳ Send any message after joining to start 30s timer.`,
+    `📸 After joining, send a SCREENSHOT of both channels.\n` +
+    `✅ Then click "I Have Joined Both" to verify.`,
     {
-      parse_mode: 'Markdown',
       ...Markup.inlineKeyboard(buttons)
     }
   );
 });
 
-// ---------- HANDLE ALL MESSAGES - AUTO TIMER START ----------
-bot.on('message', async (ctx) => {
+// ---------- HANDLE SCREENSHOTS (PHOTOS) ----------
+bot.on('photo', async (ctx) => {
   const userId = String(ctx.from.id);
   
-  console.log(`📨 Message from: ${userId}`);
-  
+  // Check if user exists
   if (!userSessions.has(userId)) {
-    userSessions.set(userId, {
-      step: 'waiting_for_join',
-      started: Date.now(),
-      verified: false,
-      timerStarted: false,
-      readyToVerify: false
-    });
-    return ctx.reply(`✅ Session created!\nUse /start to see channels.`);
+    return ctx.reply(
+      `✗ Please use /start first.`
+    );
   }
   
   const session = userSessions.get(userId);
   
-  if (session.verified) return;
-  if (session.readyToVerify) {
-    return ctx.reply(`✅ You are ready!\nClick "I Have Joined Both" button.`);
+  // If already verified
+  if (session.verified) {
+    return ctx.reply(`✓ You are already verified!`);
   }
   
-  if (activeTimers.has(userId)) {
-    const remaining = activeTimers.get(userId);
-    return ctx.reply(`⏳ Timer running: ${remaining}s remaining...`);
-  }
-  
-  // ⭐ START LIVE COUNTDOWN
-  console.log(`⏳ Starting timer for: ${userId}`);
-  
-  let countdown = 30;
-  activeTimers.set(userId, countdown);
-  
+  // Mark screenshot as received
   userSessions.set(userId, {
     ...session,
-    step: 'timer_running',
-    timerStarted: Date.now()
+    screenshotSent: true,
+    step: 'screenshot_received'
   });
   
-  // Send first countdown message
+  // Get photo file info
+  const photo = ctx.message.photo[ctx.message.photo.length - 1];
+  const fileId = photo.file_id;
+  
   await ctx.reply(
-    `⏳ *Timer Started!*\n\n` +
-    `⏱️ ${countdown} seconds remaining...\n` +
-    `🔴 Please wait...`,
-    { parse_mode: 'Markdown' }
+    `╔══════════════════════════╗\n` +
+    `║   SCREENSHOT RECEIVED   ║\n` +
+    `╚══════════════════════════╝\n\n` +
+    `✅ Screenshot received successfully!\n\n` +
+    `📸 File ID: ${fileId}\n\n` +
+    `🔄 Now click "I Have Joined Both" to complete verification.`
   );
   
-  // ⭐ LIVE COUNTDOWN INTERVAL - Har second naya message
-  const interval = setInterval(async () => {
-    countdown -= 1;
-    activeTimers.set(userId, countdown);
-    
-    if (countdown > 0) {
-      // Har second naya message with current count
-      await ctx.reply(`⏱️ *${countdown}* seconds remaining...`, { 
-        parse_mode: 'Markdown' 
-      });
-      
-    } else {
-      // Timer complete
-      clearInterval(interval);
-      activeTimers.delete(userId);
-      
-      const verifyButton = [
-        [Markup.button.callback('✅ I Have Joined Both', 'verify_now')]
-      ];
-      
-      userSessions.set(userId, {
-        ...session,
-        step: 'ready_to_verify',
-        readyToVerify: true,
-        verified: false
-      });
-      
-      await ctx.reply(
-        `✅ *Timer Complete!*\n\n` +
-        `✅ You have waited 30 seconds.\n` +
-        `✅ Click button below to verify.`,
-        {
-          parse_mode: 'Markdown',
-          ...Markup.inlineKeyboard(verifyButton)
-        }
+  // For admin: forward screenshot to admin
+  if (ADMIN_ID) {
+    try {
+      await ctx.forwardMessage(ADMIN_ID);
+      await ctx.telegram.sendMessage(
+        ADMIN_ID,
+        `📸 New screenshot from user: ${ctx.from.first_name} (@${ctx.from.username || 'No username'})\nUser ID: ${userId}`
       );
+    } catch (error) {
+      console.log('Admin forward failed:', error.message);
     }
-  }, 1000);
+  }
 });
 
-// ---------- VERIFY NOW ----------
-bot.action('verify_now', async (ctx) => {
-  await ctx.answerCbQuery();
-  
+// ---------- HANDLE DOCUMENTS (IF USER SENDS AS FILE) ----------
+bot.on('document', async (ctx) => {
   const userId = String(ctx.from.id);
   
   if (!userSessions.has(userId)) {
-    return ctx.reply(`❌ Please use /start first.`);
+    return ctx.reply(`✗ Please use /start first.`);
   }
   
   const session = userSessions.get(userId);
   
   if (session.verified) {
-    return ctx.reply(`✅ Already verified!`);
+    return ctx.reply(`✓ You are already verified!`);
   }
   
-  if (!session.readyToVerify) {
-    return ctx.reply(`❌ Please wait 30 seconds first.`);
+  // Check if it's an image
+  const mimeType = ctx.message.document.mime_type;
+  if (mimeType && mimeType.startsWith('image/')) {
+    // Mark screenshot as received
+    userSessions.set(userId, {
+      ...session,
+      screenshotSent: true,
+      step: 'screenshot_received'
+    });
+    
+    await ctx.reply(
+      `╔══════════════════════════╗\n` +
+      `║   SCREENSHOT RECEIVED   ║\n` +
+      `╚══════════════════════════╝\n\n` +
+      `✅ Screenshot received successfully!\n\n` +
+      `🔄 Now click "I Have Joined Both" to complete verification.`
+    );
+    
+    // Forward to admin
+    if (ADMIN_ID) {
+      try {
+        await ctx.forwardMessage(ADMIN_ID);
+      } catch (error) {
+        console.log('Admin forward failed:', error.message);
+      }
+    }
+  } else {
+    await ctx.reply(
+      `✗ Please send a screenshot (image file).\n\n` +
+      `📸 After joining both channels, send a screenshot.`
+    );
+  }
+});
+
+// ---------- CHECK VERIFY BUTTON ----------
+bot.action('check_verify', async (ctx) => {
+  await ctx.answerCbQuery();
+  
+  const userId = String(ctx.from.id);
+  
+  if (!userSessions.has(userId)) {
+    return ctx.reply(`✗ Please use /start first.`);
   }
   
+  const session = userSessions.get(userId);
+  
+  // Check if already verified
+  if (session.verified) {
+    return ctx.reply(`✓ You are already verified!`);
+  }
+  
+  // CHECK IF SCREENSHOT WAS SENT
+  if (!session.screenshotSent) {
+    return ctx.reply(
+      `╔══════════════════════════╗\n` +
+      `║   SCREENSHOT REQUIRED   ║\n` +
+      `╚══════════════════════════╝\n\n` +
+      `❌ You haven't sent a screenshot yet!\n\n` +
+      `📸 Please:\n` +
+      `1. Join both WhatsApp channels\n` +
+      `2. Take a screenshot\n` +
+      `3. Send it here\n` +
+      `4. Then click "I Have Joined Both" again`
+    );
+  }
+  
+  // ✅ All checks passed - VERIFY USER
   userSessions.set(userId, {
     verified: true,
     verifiedAt: new Date().toISOString(),
     username: ctx.from.username,
     firstName: ctx.from.first_name,
     step: 'verified',
-    readyToVerify: false
+    screenshotSent: true
   });
   
   await ctx.reply(
-    `✅ *VERIFICATION SUCCESSFUL!*\n\n` +
+    `╔══════════════════════════╗\n` +
+    `║  VERIFICATION SUCCESSFUL ║\n` +
+    `╚══════════════════════════╝\n\n` +
     `✅ All commands are now unlocked!\n\n` +
-    `Use /help to see available commands.`,
-    { parse_mode: 'Markdown' }
+    `Use /help to see available commands.`
   );
   
+  // Send command list
   await ctx.reply(
-    `📋 *COMMANDS*\n\n` +
+    `╔══════════════════════════╗\n` +
+    `║    COMMANDS   ║\n` +
+    `╚══════════════════════════╝\n\n` +
     `▶ /start - Start the bot\n` +
     `▶ /help - Show this menu\n` +
     `▶ /premium - Premium features\n` +
     `▶ /tools - Available tools\n` +
-    `▶ /about - About this bot`,
-    { parse_mode: 'Markdown' }
+    `▶ /about - About this bot\n\n` +
+    `◆ All commands are unlocked.`
   );
 });
 
@@ -206,18 +245,20 @@ bot.command('help', async (ctx) => {
   const userId = String(ctx.from.id);
   
   if (!userSessions.has(userId) || !userSessions.get(userId)?.verified) {
-    return ctx.reply(`❌ Please verify first using /start.`);
+    return ctx.reply(`✗ Please use /start and verify first.`);
   }
   
   await ctx.reply(
-    `📋 *COMMANDS*\n\n` +
+    `╔══════════════════════════╗\n` +
+    `║    COMMANDS   ║\n` +
+    `╚══════════════════════════╝\n\n` +
     `▶ /start - Start the bot\n` +
     `▶ /help - Show this menu\n` +
     `▶ /premium - Premium features\n` +
     `▶ /tools - Available tools\n` +
     `▶ /about - About this bot\n` +
-    `▶ /admin - Admin panel (admin only)`,
-    { parse_mode: 'Markdown' }
+    `▶ /admin - Admin panel (admin only)\n\n` +
+    `◆ All commands are unlocked.`
   );
 });
 
@@ -226,17 +267,18 @@ bot.command('premium', async (ctx) => {
   const userId = String(ctx.from.id);
   
   if (!userSessions.has(userId) || !userSessions.get(userId)?.verified) {
-    return ctx.reply(`❌ Please verify first.`);
+    return ctx.reply(`✗ Please verify first.`);
   }
   
   await ctx.reply(
-    `⭐ *PREMIUM FEATURES*\n\n` +
-    `○ Exclusive Content\n` +
-    `○ Priority Support\n` +
-    `○ Early Access\n` +
-    `○ Special Offers\n\n` +
-    `Contact admin for more information.`,
-    { parse_mode: 'Markdown' }
+    `╔══════════════════════════╗\n` +
+    `║   PREMIUM FEATURES   ║\n` +
+    `╚══════════════════════════╝\n\n` +
+    `● Exclusive Content\n` +
+    `● Priority Support\n` +
+    `● Early Access\n` +
+    `● Special Offers\n\n` +
+    `Contact admin for more information.`
   );
 });
 
@@ -245,16 +287,17 @@ bot.command('tools', async (ctx) => {
   const userId = String(ctx.from.id);
   
   if (!userSessions.has(userId) || !userSessions.get(userId)?.verified) {
-    return ctx.reply(`❌ Please verify first.`);
+    return ctx.reply(`✗ Please verify first.`);
   }
   
   await ctx.reply(
-    `🔧 *TOOLS*\n\n` +
-    `† Tool 1 - Description\n` +
-    `† Tool 2 - Description\n` +
-    `† Tool 3 - Description\n\n` +
-    `More tools coming soon.`,
-    { parse_mode: 'Markdown' }
+    `╔══════════════════════════╗\n` +
+    `║    TOOLS   ║\n` +
+    `╚══════════════════════════╝\n\n` +
+    `◆ Tool 1 - Description\n` +
+    `◆ Tool 2 - Description\n` +
+    `◆ Tool 3 - Description\n\n` +
+    `More tools coming soon.`
   );
 });
 
@@ -263,19 +306,20 @@ bot.command('about', async (ctx) => {
   const userId = String(ctx.from.id);
   
   if (!userSessions.has(userId) || !userSessions.get(userId)?.verified) {
-    return ctx.reply(`❌ Please verify first.`);
+    return ctx.reply(`✗ Please verify first.`);
   }
   
   await ctx.reply(
-    `🤖 *HJH PREMIUM BOT*\n\n` +
+    `╔══════════════════════════╗\n` +
+    `║   HJH PREMIUM BOT   ║\n` +
+    `╚══════════════════════════╝\n\n` +
     `Version: 2.0\n` +
     `Developer: HJH\n\n` +
     `Features:\n` +
-    `○ WhatsApp Force Join\n` +
-    `○ Premium Content\n` +
-    `○ Tools Management\n\n` +
-    `Made with ❤️`,
-    { parse_mode: 'Markdown' }
+    `● WhatsApp Force Join\n` +
+    `● Premium Content\n` +
+    `● Tools Management\n\n` +
+    `Made with Love`
   );
 });
 
@@ -284,18 +328,38 @@ bot.command('admin', async (ctx) => {
   const userId = String(ctx.from.id);
   
   if (userId !== ADMIN_ID) {
-    return ctx.reply(`❌ Unknown command.`);
+    return ctx.reply(`✗ Unknown command.`);
   }
   
   const totalUsers = userSessions.size;
   const verifiedCount = Array.from(userSessions.values()).filter(u => u.verified).length;
+  const screenshotCount = Array.from(userSessions.values()).filter(u => u.screenshotSent).length;
   
   await ctx.reply(
-    `👑 *ADMIN PANEL*\n\n` +
+    `╔══════════════════════════╗\n` +
+    `║   ADMIN PANEL   ║\n` +
+    `╚══════════════════════════╝\n\n` +
     `Total Users: ${totalUsers}\n` +
-    `Verified: ${verifiedCount}\n\n` +
-    `† Admin commands coming soon.`,
-    { parse_mode: 'Markdown' }
+    `Verified: ${verifiedCount}\n` +
+    `Screenshots Received: ${screenshotCount}\n\n` +
+    `◆ Admin commands coming soon.`
+  );
+});
+
+// ---------- CATCH ALL TEXT ----------
+bot.on('text', async (ctx) => {
+  const userId = String(ctx.from.id);
+  const session = userSessions.get(userId);
+  
+  if (!session?.verified) {
+    return ctx.reply(
+      `✗ Please use /start and verify first.\n\n` +
+      `📸 Remember: You need to send a screenshot to verify.`
+    );
+  }
+  
+  await ctx.reply(
+    `I received: ${ctx.message.text}\n\nUse /help for commands.`
   );
 });
 
