@@ -1,0 +1,13 @@
+{
+  "users": {},
+  "customCommands": {},
+  "tools": {},
+  "botSettings": {
+    "verificationMessage": "╔══════════════════════════╗\n║   VERIFICATION REQUIRED  ║\n╚══════════════════════════╝\n\nHello {name},\n\n⚠️ Please join BOTH WhatsApp channels:\n\n▶ {channel1}\n▶ {channel2}\n\n📸 After joining, send a SCREENSHOT of both channels.\n✅ Then click \"I Have Joined Both\" to verify.",
+    "verifiedMessage": "╔══════════════════════════╗\n║  VERIFICATION SUCCESSFUL ║\n╚══════════════════════════╝\n\n✅ All commands are now unlocked!\n\nUse /help to see available commands.",
+    "welcomeBackMessage": "╔══════════════════════════╗\n║   WELCOME BACK   ║\n╚══════════════════════════╝\n\n✓ You are already verified.\nUse /help for commands.",
+    "screenshotReceived": "╔══════════════════════════╗\n║   SCREENSHOT RECEIVED   ║\n╚══════════════════════════╝\n\n✅ Screenshot received successfully!\n\n🔄 Now click \"I Have Joined Both\" to complete verification.",
+    "screenshotRequired": "╔══════════════════════════╗\n║   SCREENSHOT REQUIRED   ║\n╚══════════════════════════╝\n\n❌ You haven't sent a screenshot yet!\n\n📸 Please:\n1. Join both WhatsApp channels\n2. Take a screenshot\n3. Send it here\n4. Then click \"I Have Joined Both\" again"
+  },
+  "whatsappChannels": []
+}
