@@ -15,6 +15,12 @@ const SIM_API_URL = 'https://hjh-pro-simdatabase-api.vercel.app/api/sim';
 const TIKTOK_API_URL = 'https://hjh-tiktok-bulk-api.vercel.app/api/tiktok-bulk';
 const DOWNLOADER_API_URL = 'https://hjh-social-media-downloader-api.vercel.app/api/download';
 
+// ---------- ⭐ WHATSAPP CHANNEL LINKS (HARDCODED) ----------
+const CHANNEL_1_NAME = 'HJH TOOLS Official';
+const CHANNEL_1_LINK = 'https://whatsapp.com/channel/0029VbAaNJ6C1FuB0mIAx93M';
+const CHANNEL_2_NAME = 'SBL OFFICIAL';
+const CHANNEL_2_LINK = 'https://whatsapp.com/channel/0029VbBVDAc1noz5dhxnYO3r';
+
 // ---------- DATA PERSISTENCE ----------
 let data = {};
 
@@ -34,16 +40,8 @@ const loadData = async () => {
           screenshotRequired: `┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓\n┃   SCREENSHOT REQUIRED   ┃\n┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛\n\n✗ You haven't sent a screenshot yet!\n\n📸 Please:\n1. Join both WhatsApp channels\n2. Take a screenshot\n3. Send it here\n4. Then click "I Have Joined Both" again`
         },
         whatsappChannels: [
-          {
-            id: 'channel1',
-            name: process.env.WHATSAPP_CHANNEL_1_NAME || 'HJH Tools Official',
-            link: process.env.WHATSAPP_CHANNEL_1_LINK || '#'
-          },
-          {
-            id: 'channel2',
-            name: process.env.WHATSAPP_CHANNEL_2_NAME || 'SBL Official',
-            link: process.env.WHATSAPP_CHANNEL_2_LINK || '#'
-          }
+          { id: 'channel1', name: CHANNEL_1_NAME, link: CHANNEL_1_LINK },
+          { id: 'channel2', name: CHANNEL_2_NAME, link: CHANNEL_2_LINK }
         ]
       };
       await saveData();
@@ -72,22 +70,10 @@ const getUserSessions = () => data.users || {};
 const setUserSessions = (users) => { data.users = users; saveData(); };
 const getBotSettings = () => data.botSettings || {};
 const getWhatsAppChannels = () => {
-  if (!data.whatsappChannels || data.whatsappChannels.length === 0) {
-    data.whatsappChannels = [
-      {
-        id: 'channel1',
-        name: 'HJH Tools Official',
-        link: 'https://whatsapp.com/channel/0029VaXXXXXXXXX1'
-      },
-      {
-        id: 'channel2',
-        name: 'SBL Official',
-        link: 'https://whatsapp.com/channel/0029VaXXXXXXXXX2'
-      }
-    ];
-    saveData();
-  }
-  return data.whatsappChannels;
+  return [
+    { id: 'channel1', name: CHANNEL_1_NAME, link: CHANNEL_1_LINK },
+    { id: 'channel2', name: CHANNEL_2_NAME, link: CHANNEL_2_LINK }
+  ];
 };
 
 // ---------- API FUNCTIONS ----------
@@ -205,12 +191,9 @@ bot.command('start', async (ctx) => {
   const channels = getWhatsAppChannels();
   const buttons = [];
   
-  // ✅ DIRECT URL BUTTONS
   channels.forEach(channel => {
     if (channel.link && channel.link !== '#' && channel.link.startsWith('http')) {
       buttons.push([Markup.button.url(`▶ ${channel.name}`, channel.link)]);
-    } else {
-      buttons.push([Markup.button.url(`▶ ${channel.name}`, 'https://whatsapp.com')]);
     }
   });
   
