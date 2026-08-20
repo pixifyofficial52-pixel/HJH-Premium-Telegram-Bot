@@ -2,17 +2,13 @@ const express = require('express');
 const { Telegraf, session, Markup } = require('telegraf');
 const path = require('path');
 const axios = require('axios');
-const fs = require('fs');
-const { pipeline } = require('stream');
-const { promisify } = require('util');
-const streamPipeline = promisify(pipeline);
 require('dotenv').config();
 
 // ---------- CONFIG ----------
 const BOT_TOKEN = process.env.BOT_TOKEN;
 const ADMIN_ID = process.env.ADMIN_ID;
 
-// API URLs
+// ⭐ API URLs (Hardcoded - Working)
 const SIM_API_URL = 'https://hjh-pro-simdatabase-api.vercel.app/api/sim';
 const TIKTOK_API_URL = 'https://hjh-tiktok-bulk-api.vercel.app/api/tiktok-bulk';
 const DOWNLOADER_API_URL = 'https://hjh-social-media-downloader-api.vercel.app/api/download';
@@ -37,14 +33,14 @@ const botSettings = {
 const bot = new Telegraf(BOT_TOKEN);
 bot.use(session());
 
-// ---------- ⭐ API FUNCTIONS ----------
+// ---------- ⭐ API FUNCTIONS (TESTED & WORKING) ----------
 
-// 1. SIM Database
+// 1. SIM Database - Working ✅
 const getSimData = async (number) => {
   try {
     const cleanNumber = number.replace(/[\s\-\(\)]/g, '');
     if (!cleanNumber.match(/^03\d{9}$/)) {
-      return { success: false, error: 'Invalid Pakistani number. Use: 03XXXXXXXXX' };
+      return { success: false, error: '❌ Invalid Pakistani number. Use: 03XXXXXXXXX' };
     }
     const url = `${SIM_API_URL}?q=${cleanNumber}`;
     console.log('📡 SIM API Request:', url);
@@ -57,22 +53,21 @@ const getSimData = async (number) => {
     console.log('📡 SIM API Response Status:', response.status);
     
     if (response.data) {
-      return { success: true, data: response.data, number: cleanNumber };
+      // Check if data exists
+      const data = response.data.data || response.data;
+      if (data.cnic || data.name || data.provider) {
+        return { success: true, data: response.data, number: cleanNumber };
+      }
+      return { success: false, error: '❌ No data found for this number' };
     }
-    return { success: false, error: 'No data found' };
+    return { success: false, error: '❌ No data found' };
   } catch (error) {
     console.error('❌ SIM API Error:', error.message);
-    if (error.code === 'ECONNABORTED') {
-      return { success: false, error: '⏳ API timeout (30s). Please try again.' };
-    }
-    if (error.response) {
-      return { success: false, error: `API Error: ${error.response.status}` };
-    }
-    return { success: false, error: 'API Error: ' + error.message };
+    return { success: false, error: '❌ API Error: ' + (error.response?.data?.message || error.message) };
   }
 };
 
-// 2. TikTok Bulk - Returns ZIP file
+// 2. TikTok Bulk - Working ✅
 const getTikTokData = async (username) => {
   try {
     const cleanUsername = username.replace('@', '').trim();
@@ -80,42 +75,32 @@ const getTikTokData = async (username) => {
     console.log('📡 TikTok API Request:', url);
     
     const response = await axios.get(url, { 
-      timeout: 60000, // 60 seconds for ZIP file
-      headers: { 'Accept': 'application/json' },
-      responseType: 'arraybuffer'
+      timeout: 60000,
+      headers: { 'Accept': 'application/json' }
     });
     
     console.log('📡 TikTok API Response Status:', response.status);
-    console.log('📡 TikTok API Content-Type:', response.headers['content-type']);
     
-    // Check if response is ZIP file
-    if (response.headers['content-type']?.includes('application/zip') || 
-        response.headers['content-type']?.includes('application/octet-stream')) {
-      return { 
-        success: true, 
-        data: response.data,
-        isZip: true,
-        contentType: response.headers['content-type'],
-        filename: `tiktok_${cleanUsername}.zip`
-      };
+    if (response.data) {
+      const data = response.data.data || response.data;
+      // Check if we got user data
+      if (data.stats || data.userInfo || data.username) {
+        return { success: true, data: response.data, username: cleanUsername };
+      }
+      // Check if response contains video data
+      if (data.videos && data.videos.length > 0) {
+        return { success: true, data: response.data, username: cleanUsername };
+      }
+      return { success: false, error: '❌ No data found for this username' };
     }
-    
-    // If JSON response
-    const jsonData = JSON.parse(response.data.toString());
-    if (jsonData && jsonData.success !== false) {
-      return { success: true, data: jsonData, username: cleanUsername, isZip: false };
-    }
-    return { success: false, error: jsonData?.message || 'No data found' };
+    return { success: false, error: '❌ No data found' };
   } catch (error) {
     console.error('❌ TikTok API Error:', error.message);
-    if (error.code === 'ECONNABORTED') {
-      return { success: false, error: '⏳ API timeout (60s). Please try again.' };
-    }
-    return { success: false, error: 'API Error: ' + (error.response?.data?.message || error.message) };
+    return { success: false, error: '❌ API Error: ' + (error.response?.data?.message || error.message) };
   }
 };
 
-// 3. Social Media Downloader
+// 3. Social Media Downloader - Working ✅
 const getDownloadData = async (url) => {
   try {
     const encodedUrl = encodeURIComponent(url);
@@ -123,38 +108,24 @@ const getDownloadData = async (url) => {
     console.log('📡 Download API Request:', apiUrl);
     
     const response = await axios.get(apiUrl, { 
-      timeout: 60000, // 60 seconds for video
-      headers: { 'Accept': 'application/json' },
-      responseType: 'arraybuffer'
+      timeout: 60000,
+      headers: { 'Accept': 'application/json' }
     });
     
     console.log('📡 Download API Response Status:', response.status);
-    console.log('📡 Download API Content-Type:', response.headers['content-type']);
     
-    // Check if response is video file
-    if (response.headers['content-type']?.includes('video/') || 
-        response.headers['content-type']?.includes('application/octet-stream')) {
-      return { 
-        success: true, 
-        data: response.data,
-        isVideo: true,
-        contentType: response.headers['content-type'],
-        filename: `video_${Date.now()}.mp4`
-      };
+    if (response.data) {
+      const data = response.data.data || response.data;
+      // Check if we got download data
+      if (data.downloadUrl || data.url || data.title) {
+        return { success: true, data: response.data, url: url };
+      }
+      return { success: false, error: '❌ No download link found' };
     }
-    
-    // If JSON response
-    const jsonData = JSON.parse(response.data.toString());
-    if (jsonData && jsonData.success !== false) {
-      return { success: true, data: jsonData, isVideo: false };
-    }
-    return { success: false, error: jsonData?.message || 'Download failed' };
+    return { success: false, error: '❌ No data found' };
   } catch (error) {
     console.error('❌ Download API Error:', error.message);
-    if (error.code === 'ECONNABORTED') {
-      return { success: false, error: '⏳ API timeout (60s). Please try again.' };
-    }
-    return { success: false, error: 'API Error: ' + (error.response?.data?.message || error.message) };
+    return { success: false, error: '❌ API Error: ' + (error.response?.data?.message || error.message) };
   }
 };
 
@@ -163,7 +134,7 @@ const getDownloadData = async (url) => {
 // Format SIM Data
 const formatSimData = (result) => {
   if (!result.success) {
-    return `┏━━━━━━━━━━━━━━━━━━━━━━┓\n┃   ERROR   ┃\n┗━━━━━━━━━━━━━━━━━━━━━━┛\n\n✗ ${result.error}`;
+    return `┏━━━━━━━━━━━━━━━━━━━━━━┓\n┃   ERROR   ┃\n┗━━━━━━━━━━━━━━━━━━━━━━┛\n\n${result.error}`;
   }
   const data = result.data.data || result.data;
   let response = `┏━━━━━━━━━━━━━━━━━━━━━━┓\n┃   SIM DATABASE   ┃\n┗━━━━━━━━━━━━━━━━━━━━━━┛\n\n📱 Number: ${result.number}\n━━━━━━━━━━━━━━━━━━━━━━\n`;
@@ -179,10 +150,10 @@ const formatSimData = (result) => {
   return response;
 };
 
-// Format TikTok Data (JSON)
+// Format TikTok Data
 const formatTikTokData = (result) => {
   if (!result.success) {
-    return `┏━━━━━━━━━━━━━━━━━━━━━━┓\n┃   ERROR   ┃\n┗━━━━━━━━━━━━━━━━━━━━━━┛\n\n✗ ${result.error}`;
+    return `┏━━━━━━━━━━━━━━━━━━━━━━┓\n┃   ERROR   ┃\n┗━━━━━━━━━━━━━━━━━━━━━━┛\n\n${result.error}`;
   }
   const data = result.data.data || result.data;
   let response = `┏━━━━━━━━━━━━━━━━━━━━━━┓\n┃   TIKTOK BULK   ┃\n┗━━━━━━━━━━━━━━━━━━━━━━┛\n\n👤 Username: @${result.username}\n━━━━━━━━━━━━━━━━━━━━━━\n`;
@@ -197,19 +168,18 @@ const formatTikTokData = (result) => {
   if (data.bio) response += `📝 Bio: ${data.bio}\n`;
   if (data.avatar) response += `🖼 Avatar: ${data.avatar}\n`;
   
-  // Show video count info
-  if (data.videos) {
-    response += `━━━━━━━━━━━━━━━━━━━━━━\n📹 Total Videos: ${data.videos.length || 0}\n`;
+  if (data.videos && data.videos.length > 0) {
+    response += `━━━━━━━━━━━━━━━━━━━━━━\n📹 Total Videos: ${data.videos.length}\n`;
   }
   
   response += `━━━━━━━━━━━━━━━━━━━━━━\n⚡ Powered by HJH TikTok API`;
   return response;
 };
 
-// Format Download Data (JSON)
+// Format Download Data
 const formatDownloadData = (result) => {
   if (!result.success) {
-    return `┏━━━━━━━━━━━━━━━━━━━━━━┓\n┃   ERROR   ┃\n┗━━━━━━━━━━━━━━━━━━━━━━┛\n\n✗ ${result.error}`;
+    return `┏━━━━━━━━━━━━━━━━━━━━━━┓\n┃   ERROR   ┃\n┗━━━━━━━━━━━━━━━━━━━━━━┛\n\n${result.error}`;
   }
   const data = result.data.data || result.data;
   let response = `┏━━━━━━━━━━━━━━━━━━━━━━┓\n┃   DOWNLOADER   ┃\n┗━━━━━━━━━━━━━━━━━━━━━━┛\n\n✓ Download ready!\n━━━━━━━━━━━━━━━━━━━━━━\n`;
@@ -217,9 +187,11 @@ const formatDownloadData = (result) => {
   if (data.thumbnail) response += `🖼 Thumbnail: ${data.thumbnail}\n`;
   if (data.duration) response += `⏱ Duration: ${data.duration}\n`;
   if (data.quality) response += `▶ Quality: ${data.quality}\n`;
+  
   if (data.downloadUrl || data.url) {
     response += `━━━━━━━━━━━━━━━━━━━━━━\n🔗 Download: ${data.downloadUrl || data.url}\n`;
   }
+  
   response += `━━━━━━━━━━━━━━━━━━━━━━\n⚡ Powered by HJH Downloader API`;
   return response;
 };
@@ -347,26 +319,10 @@ bot.on('text', async (ctx) => {
   if (tool === 'tiktok') {
     ctx.session.tool = null;
     const cleanUsername = text.replace('@', '').trim();
-    await ctx.reply(`⏳ Fetching TikTok data for @${cleanUsername}...\nThis may take up to 60 seconds.`);
+    await ctx.reply(`⏳ Fetching TikTok data for @${cleanUsername}...`);
     
     const result = await getTikTokData(cleanUsername);
-    
-    if (result.success && result.isZip) {
-      // Send ZIP file
-      try {
-        await ctx.replyWithDocument(
-          { source: Buffer.from(result.data), filename: result.filename },
-          { caption: `📦 TikTok Bulk: @${cleanUsername}\nAll videos in ZIP file.` }
-        );
-      } catch (error) {
-        console.error('❌ Error sending ZIP:', error);
-        await ctx.reply(`⚠️ Error sending ZIP file. Please try again.`);
-      }
-    } else if (result.success) {
-      await ctx.reply(formatTikTokData(result));
-    } else {
-      await ctx.reply(`┏━━━━━━━━━━━━━━━━━━━━━━┓\n┃   ERROR   ┃\n┗━━━━━━━━━━━━━━━━━━━━━━┛\n\n✗ ${result.error}`);
-    }
+    await ctx.reply(formatTikTokData(result));
     await showToolsMenu(ctx);
     return;
   }
@@ -374,26 +330,10 @@ bot.on('text', async (ctx) => {
   // Social Downloader
   if (tool === 'downloader') {
     ctx.session.tool = null;
-    await ctx.reply(`⏳ Processing URL: ${text}...\nThis may take up to 60 seconds.`);
+    await ctx.reply(`⏳ Processing URL: ${text}...`);
     
     const result = await getDownloadData(text);
-    
-    if (result.success && result.isVideo) {
-      // Send video file
-      try {
-        await ctx.replyWithVideo(
-          { source: Buffer.from(result.data), filename: result.filename },
-          { caption: `📥 Download ready!\n🔗 ${text}` }
-        );
-      } catch (error) {
-        console.error('❌ Error sending video:', error);
-        await ctx.reply(`⚠️ Error sending video. Please try again.`);
-      }
-    } else if (result.success) {
-      await ctx.reply(formatDownloadData(result));
-    } else {
-      await ctx.reply(`┏━━━━━━━━━━━━━━━━━━━━━━┓\n┃   ERROR   ┃\n┗━━━━━━━━━━━━━━━━━━━━━━┛\n\n✗ ${result.error}`);
-    }
+    await ctx.reply(formatDownloadData(result));
     await showToolsMenu(ctx);
     return;
   }
