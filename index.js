@@ -205,12 +205,12 @@ bot.command('start', async (ctx) => {
   const channels = getWhatsAppChannels();
   const buttons = [];
   
-  // ✅ CHANNEL BUTTONS - PROPER LINKS
+  // ✅ DIRECT URL BUTTONS
   channels.forEach(channel => {
     if (channel.link && channel.link !== '#' && channel.link.startsWith('http')) {
-      buttons.push([Markup.button.url(`📱 ${channel.name}`, channel.link)]);
+      buttons.push([Markup.button.url(`▶ ${channel.name}`, channel.link)]);
     } else {
-      buttons.push([Markup.button.callback(`📱 ${channel.name} (Link missing)`, 'no_link')]);
+      buttons.push([Markup.button.url(`▶ ${channel.name}`, 'https://whatsapp.com')]);
     }
   });
   
@@ -234,22 +234,12 @@ bot.command('start', async (ctx) => {
   await ctx.reply(msg, { ...Markup.inlineKeyboard(buttons) });
 });
 
-// NO LINK HANDLER
-bot.action('no_link', async (ctx) => {
-  await ctx.answerCbQuery();
-  await ctx.reply(
-    `⚠️ Channel link is missing!\n\n` +
-    `Please update the channel link in admin panel.\n` +
-    `Go to Settings → Update Channels.`
-  );
-});
-
 // SHOW TOOLS MENU
 const showToolsMenu = async (ctx) => {
   const buttons = [
-    [Markup.button.callback('📱 SIM Database', 'tool_sim')],
-    [Markup.button.callback('🎵 TikTok Bulk', 'tool_tiktok')],
-    [Markup.button.callback('📥 Social Downloader', 'tool_downloader')]
+    [Markup.button.callback('▶ SIM Database', 'tool_sim')],
+    [Markup.button.callback('▶ TikTok Bulk', 'tool_tiktok')],
+    [Markup.button.callback('▶ Social Downloader', 'tool_downloader')]
   ];
   
   await ctx.reply(
