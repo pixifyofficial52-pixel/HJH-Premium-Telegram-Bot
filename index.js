@@ -231,7 +231,7 @@ const showToolsMenu = async (ctx) => {
   );
 };
 
-// ---------- ⭐ TOOL HANDLERS - CALLBACKS ----------
+// ---------- ⭐ TOOL HANDLERS ----------
 bot.action('tool_sim', async (ctx) => {
   try {
     await ctx.answerCbQuery();
