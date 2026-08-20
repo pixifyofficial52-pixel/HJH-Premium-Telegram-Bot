@@ -194,6 +194,7 @@ const formatDownloadData = (result) => {
 
 // START COMMAND
 bot.command('start', async (ctx) => {
+  console.log('📨 /start received from:', ctx.from.id);
   const userId = String(ctx.from.id);
   const users = getUserSessions();
   
@@ -204,9 +205,12 @@ bot.command('start', async (ctx) => {
   const channels = getWhatsAppChannels();
   const buttons = [];
   
+  // ✅ CHANNEL BUTTONS - PROPER LINKS
   channels.forEach(channel => {
-    if (channel.link && channel.link !== '#') {
+    if (channel.link && channel.link !== '#' && channel.link.startsWith('http')) {
       buttons.push([Markup.button.url(`📱 ${channel.name}`, channel.link)]);
+    } else {
+      buttons.push([Markup.button.callback(`📱 ${channel.name} (Link missing)`, 'no_link')]);
     }
   });
   
@@ -228,6 +232,16 @@ bot.command('start', async (ctx) => {
     .replace(/{channel2}/g, channels[1]?.name || 'Channel 2');
   
   await ctx.reply(msg, { ...Markup.inlineKeyboard(buttons) });
+});
+
+// NO LINK HANDLER
+bot.action('no_link', async (ctx) => {
+  await ctx.answerCbQuery();
+  await ctx.reply(
+    `⚠️ Channel link is missing!\n\n` +
+    `Please update the channel link in admin panel.\n` +
+    `Go to Settings → Update Channels.`
+  );
 });
 
 // SHOW TOOLS MENU
