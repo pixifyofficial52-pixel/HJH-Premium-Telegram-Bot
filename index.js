@@ -15,7 +15,7 @@ const SIM_API_URL = 'https://hjh-pro-simdatabase-api.vercel.app/api/sim';
 const TIKTOK_API_URL = 'https://hjh-tiktok-bulk-api.vercel.app/api/tiktok-bulk';
 const DOWNLOADER_API_URL = 'https://hjh-social-media-downloader-api.vercel.app/api/download';
 
-// ---------- ⭐ WHATSAPP CHANNEL LINKS (HARDCODED) ----------
+// ---------- WHATSAPP CHANNEL LINKS ----------
 const CHANNEL_1_NAME = 'HJH TOOLS Official';
 const CHANNEL_1_LINK = 'https://whatsapp.com/channel/0029VbAaNJ6C1FuB0mIAx93M';
 const CHANNEL_2_NAME = 'SBL OFFICIAL';
@@ -231,29 +231,44 @@ const showToolsMenu = async (ctx) => {
   );
 };
 
-// ---------- TOOL HANDLERS ----------
+// ---------- ⭐ TOOL HANDLERS - CALLBACKS ----------
 bot.action('tool_sim', async (ctx) => {
-  await ctx.answerCbQuery();
-  ctx.session.tool = 'sim';
-  await ctx.reply(
-    `┏━━━━━━━━━━━━━━━━━━━━━━┓\n┃   SIM DATABASE   ┃\n┗━━━━━━━━━━━━━━━━━━━━━━┛\n\n🔍 Please send the Pakistani mobile number.\n\n📱 Format: 03217558607\n\nType /cancel to cancel.`
-  );
+  try {
+    await ctx.answerCbQuery();
+    ctx.session.tool = 'sim';
+    await ctx.reply(
+      `┏━━━━━━━━━━━━━━━━━━━━━━┓\n┃   SIM DATABASE   ┃\n┗━━━━━━━━━━━━━━━━━━━━━━┛\n\n🔍 Please send the Pakistani mobile number.\n\n📱 Format: 03217558607\n\nType /cancel to cancel.`
+    );
+  } catch (error) {
+    console.error('SIM tool error:', error);
+    await ctx.reply('⚠️ Error loading SIM tool. Please try again.');
+  }
 });
 
 bot.action('tool_tiktok', async (ctx) => {
-  await ctx.answerCbQuery();
-  ctx.session.tool = 'tiktok';
-  await ctx.reply(
-    `┏━━━━━━━━━━━━━━━━━━━━━━┓\n┃   TIKTOK BULK   ┃\n┗━━━━━━━━━━━━━━━━━━━━━━┛\n\n🔍 Please send the TikTok username.\n\n👤 Format: @username\n\nType /cancel to cancel.`
-  );
+  try {
+    await ctx.answerCbQuery();
+    ctx.session.tool = 'tiktok';
+    await ctx.reply(
+      `┏━━━━━━━━━━━━━━━━━━━━━━┓\n┃   TIKTOK BULK   ┃\n┗━━━━━━━━━━━━━━━━━━━━━━┛\n\n🔍 Please send the TikTok username.\n\n👤 Format: @username\n\nType /cancel to cancel.`
+    );
+  } catch (error) {
+    console.error('TikTok tool error:', error);
+    await ctx.reply('⚠️ Error loading TikTok tool. Please try again.');
+  }
 });
 
 bot.action('tool_downloader', async (ctx) => {
-  await ctx.answerCbQuery();
-  ctx.session.tool = 'downloader';
-  await ctx.reply(
-    `┏━━━━━━━━━━━━━━━━━━━━━━┓\n┃   DOWNLOADER   ┃\n┗━━━━━━━━━━━━━━━━━━━━━━┛\n\n🔍 Please send the video URL.\n\n📌 Supported: Facebook, Instagram, YouTube, TikTok\n\nType /cancel to cancel.`
-  );
+  try {
+    await ctx.answerCbQuery();
+    ctx.session.tool = 'downloader';
+    await ctx.reply(
+      `┏━━━━━━━━━━━━━━━━━━━━━━┓\n┃   DOWNLOADER   ┃\n┗━━━━━━━━━━━━━━━━━━━━━━┛\n\n🔍 Please send the video URL.\n\n📌 Supported: Facebook, Instagram, YouTube, TikTok\n\nType /cancel to cancel.`
+    );
+  } catch (error) {
+    console.error('Downloader tool error:', error);
+    await ctx.reply('⚠️ Error loading Downloader tool. Please try again.');
+  }
 });
 
 // Cancel command
