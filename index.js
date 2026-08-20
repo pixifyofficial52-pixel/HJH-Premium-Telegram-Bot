@@ -19,7 +19,7 @@ const CHANNEL_1_LINK = 'https://whatsapp.com/channel/0029VbAaNJ6C1FuB0mIAx93M';
 const CHANNEL_2_NAME = 'SBL OFFICIAL';
 const CHANNEL_2_LINK = 'https://whatsapp.com/channel/0029VbBVDAc1noz5dhxnYO3r';
 
-// ---------- MEMORY STORAGE (No File System) ----------
+// ---------- MEMORY STORAGE ----------
 const users = {};
 const botSettings = {
   verificationMessage: `┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓\n┃   VERIFICATION REQUIRED   ┃\n┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛\n\nHello {name},\n\n⚠ Please join BOTH WhatsApp channels:\n\n▶ {channel1}\n▶ {channel2}\n\n📸 After joining, send a SCREENSHOT of both channels.\n✓ Then click "I Have Joined Both" to verify.`,
@@ -33,7 +33,7 @@ const botSettings = {
 const bot = new Telegraf(BOT_TOKEN);
 bot.use(session());
 
-// ---------- API FUNCTIONS ----------
+// ---------- ⭐ API FUNCTIONS WITH 30 SECONDS TIMEOUT ----------
 const getSimData = async (number) => {
   try {
     const cleanNumber = number.replace(/[\s\-\(\)]/g, '');
@@ -41,12 +41,24 @@ const getSimData = async (number) => {
       return { success: false, error: 'Invalid Pakistani number. Use: 03XXXXXXXXX' };
     }
     const url = `${SIM_API_URL}?q=${cleanNumber}`;
-    const response = await axios.get(url, { timeout: 15000 });
+    console.log('📡 SIM API Request:', url);
+    
+    const response = await axios.get(url, { 
+      timeout: 30000, // ⭐ 30 seconds
+      headers: { 'Accept': 'application/json' }
+    });
+    
+    console.log('📡 SIM API Response:', response.status);
+    
     if (response.data && response.data.success !== false) {
       return { success: true, data: response.data, number: cleanNumber };
     }
     return { success: false, error: response.data?.message || 'No data found' };
   } catch (error) {
+    console.error('❌ SIM API Error:', error.message);
+    if (error.code === 'ECONNABORTED') {
+      return { success: false, error: '⏳ API timeout. Please try again.' };
+    }
     return { success: false, error: 'API Error: ' + (error.response?.data?.message || error.message) };
   }
 };
@@ -55,12 +67,24 @@ const getTikTokData = async (username) => {
   try {
     const cleanUsername = username.replace('@', '').trim();
     const url = `${TIKTOK_API_URL}?target=${cleanUsername}`;
-    const response = await axios.get(url, { timeout: 20000 });
+    console.log('📡 TikTok API Request:', url);
+    
+    const response = await axios.get(url, { 
+      timeout: 30000, // ⭐ 30 seconds
+      headers: { 'Accept': 'application/json' }
+    });
+    
+    console.log('📡 TikTok API Response:', response.status);
+    
     if (response.data && response.data.success !== false) {
       return { success: true, data: response.data, username: cleanUsername };
     }
     return { success: false, error: response.data?.message || 'No data found' };
   } catch (error) {
+    console.error('❌ TikTok API Error:', error.message);
+    if (error.code === 'ECONNABORTED') {
+      return { success: false, error: '⏳ API timeout. Please try again.' };
+    }
     return { success: false, error: 'API Error: ' + (error.response?.data?.message || error.message) };
   }
 };
@@ -69,12 +93,24 @@ const getDownloadData = async (url) => {
   try {
     const encodedUrl = encodeURIComponent(url);
     const apiUrl = `${DOWNLOADER_API_URL}?url=${encodedUrl}`;
-    const response = await axios.get(apiUrl, { timeout: 30000 });
+    console.log('📡 Download API Request:', apiUrl);
+    
+    const response = await axios.get(apiUrl, { 
+      timeout: 45000, // ⭐ 45 seconds for downloader (larger files)
+      headers: { 'Accept': 'application/json' }
+    });
+    
+    console.log('📡 Download API Response:', response.status);
+    
     if (response.data && response.data.success !== false) {
       return { success: true, data: response.data, url: url };
     }
     return { success: false, error: response.data?.message || 'Download failed' };
   } catch (error) {
+    console.error('❌ Download API Error:', error.message);
+    if (error.code === 'ECONNABORTED') {
+      return { success: false, error: '⏳ API timeout. Please try again.' };
+    }
     return { success: false, error: 'API Error: ' + (error.response?.data?.message || error.message) };
   }
 };
@@ -140,19 +176,16 @@ bot.command('start', async (ctx) => {
   console.log('📨 /start received from:', ctx.from.id);
   const userId = String(ctx.from.id);
   
-  // Check if user is already verified (memory)
   if (users[userId]?.verified) {
     return showToolsMenu(ctx);
   }
   
-  // Create channel buttons
   const buttons = [
     [Markup.button.url(`▶ ${CHANNEL_1_NAME}`, CHANNEL_1_LINK)],
     [Markup.button.url(`▶ ${CHANNEL_2_NAME}`, CHANNEL_2_LINK)],
     [Markup.button.callback('✓ I Have Joined Both', 'check_verify')]
   ];
   
-  // Store user in memory
   users[userId] = {
     step: 'waiting_for_join',
     started: Date.now(),
@@ -182,11 +215,10 @@ const showToolsMenu = async (ctx) => {
   );
 };
 
-// ---------- ⭐ TOOL HANDLERS (FIXED - Using ctx.session properly) ----------
+// ---------- TOOL HANDLERS ----------
 bot.action('tool_sim', async (ctx) => {
   try {
     await ctx.answerCbQuery();
-    // ✅ FIX: Initialize session if undefined
     if (!ctx.session) ctx.session = {};
     ctx.session.tool = 'sim';
     await ctx.reply(
@@ -201,7 +233,6 @@ bot.action('tool_sim', async (ctx) => {
 bot.action('tool_tiktok', async (ctx) => {
   try {
     await ctx.answerCbQuery();
-    // ✅ FIX: Initialize session if undefined
     if (!ctx.session) ctx.session = {};
     ctx.session.tool = 'tiktok';
     await ctx.reply(
@@ -216,7 +247,6 @@ bot.action('tool_tiktok', async (ctx) => {
 bot.action('tool_downloader', async (ctx) => {
   try {
     await ctx.answerCbQuery();
-    // ✅ FIX: Initialize session if undefined
     if (!ctx.session) ctx.session = {};
     ctx.session.tool = 'downloader';
     await ctx.reply(
